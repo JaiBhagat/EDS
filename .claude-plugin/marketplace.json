@@ -1,7 +1,5 @@
 {
-  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "eds",
-  "description": "Everything Data Science — discovery-first, domain-agnostic data science plugin for Claude Code.",
   "owner": {
     "name": "Jai Bhagat"
   },

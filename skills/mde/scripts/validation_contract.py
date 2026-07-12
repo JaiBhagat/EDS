@@ -42,13 +42,41 @@ def detect_split_strategy(df, time_col=None, entity_col=None):
     return "random"
 
 
-def select_metric(task_type, brief_metric=None):
-    """Choose metric matched to task type. Brief overrides if present."""
+def read_brief_metric(brief_path: str = ".eds/BRIEF.md") -> str | None:
+    """Parse the primary metric from the Brief's Stage 5 section."""
+    import re
+    if not os.path.exists(brief_path):
+        return None
+    with open(brief_path) as f:
+        content = f.read()
+    # Look for "Primary metric" in Stage 5 or metric table
+    patterns = [
+        r"[Pp]rimary\s+metric[:\s]+[`\"]?(\w+)[`\"]?",
+        r"\|\s*metric\s*\|\s*[`\"]?(\w+)[`\"]?",
+    ]
+    for pat in patterns:
+        m = re.search(pat, content)
+        if m:
+            return m.group(1)
+    return None
+
+
+def select_metric(task_type: str, brief_metric: str | None = None,
+                  positive_rate: float | None = None) -> tuple[str, str]:
+    """Choose metric matched to task type. Returns (metric, reason).
+
+    Priority: explicit brief_metric > imbalance-aware default > generic default.
+    """
     if brief_metric:
-        return brief_metric
+        return brief_metric, f"Brief specifies '{brief_metric}'"
+
     if task_type == "classification":
-        return "roc_auc"
-    return "neg_rmse"
+        if positive_rate is not None and positive_rate < 0.02:
+            return ("average_precision",
+                    f"Positive rate {positive_rate:.4f} < 2% — AUC is insensitive "
+                    "to performance on the minority class; AUPRC is the honest metric")
+        return "roc_auc", "AUC: threshold-invariant, suitable when cost asymmetry hasn't pinned an operating point yet"
+    return "neg_rmse", "RMSE: penalizes large errors more than MAE, appropriate for most regression tasks"
 
 
 def compute_hash(contract):
@@ -58,11 +86,27 @@ def compute_hash(contract):
 
 
 def create_contract(df, target, time_col=None, entity_col=None,
-                    metric=None, seed=42, n_folds=5, holdout_frac=0.15):
+                    metric=None, seed=42, n_folds=5, holdout_frac=0.15,
+                    brief_path=".eds/BRIEF.md"):
     """Build a validation contract from data characteristics."""
     task_type = detect_task_type(df, target)
     split_strategy = detect_split_strategy(df, time_col, entity_col)
-    chosen_metric = select_metric(task_type, metric if metric != "auto" else None)
+
+    # Metric resolution: explicit arg > Brief > imbalance-aware default
+    explicit_metric = metric if metric and metric != "auto" else None
+    brief_metric = None if explicit_metric else read_brief_metric(brief_path)
+    resolved_source = explicit_metric or brief_metric
+
+    # Compute positive rate for imbalance-aware default
+    positive_rate = None
+    if task_type == "classification" and not resolved_source:
+        y = df[target]
+        if pd.api.types.is_numeric_dtype(y) and y.nunique() == 2:
+            positive_rate = float(y.mean()) if y.min() == 0 else float((y == y.value_counts().idxmin()).mean())
+
+    chosen_metric, metric_reason = select_metric(
+        task_type, resolved_source, positive_rate
+    )
 
     contract = {
         "version": 1,
@@ -70,6 +114,7 @@ def create_contract(df, target, time_col=None, entity_col=None,
         "task_type": task_type,
         "target": target,
         "metric": chosen_metric,
+        "metric_source": "brief" if brief_metric else ("user" if explicit_metric else "auto"),
         "split_strategy": split_strategy,
         "time_col": time_col,
         "entity_col": entity_col,
@@ -83,9 +128,11 @@ def create_contract(df, target, time_col=None, entity_col=None,
         },
         "rationale": {
             "split_reason": _split_rationale(split_strategy, time_col, entity_col),
-            "metric_reason": _metric_rationale(chosen_metric, task_type),
+            "metric_reason": metric_reason,
         },
     }
+    if positive_rate is not None:
+        contract["positive_rate"] = round(positive_rate, 6)
     # Hash covers everything except the hash field itself
     contract["hash"] = compute_hash(contract)
     return contract
@@ -106,8 +153,10 @@ def _split_rationale(strategy, time_col, entity_col):
 
 
 def _metric_rationale(metric, task_type):
+    """Fallback rationale lookup — only used if select_metric didn't provide one."""
     rationales = {
         "roc_auc": "AUC: threshold-invariant, suitable when cost asymmetry hasn't pinned an operating point yet",
+        "average_precision": "AUPRC: honest metric for imbalanced classification where positives are rare",
         "neg_rmse": "RMSE: penalizes large errors more than MAE, appropriate for most regression tasks",
         "precision_at_k": "Precision@k: matched to a fixed review capacity",
         "f1": "F1: harmonic mean when FP and FN are roughly equally costly",

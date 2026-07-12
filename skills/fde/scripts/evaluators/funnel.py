@@ -106,15 +106,34 @@ def stage_3_cardinality(df, candidates, max_categories=100):
 
 
 def stage_4_univariate_signal(df, target, candidates):
-    """Ranks, never hard-kills. Categorical columns get a spread-of-group-means
+    """Ranks, never hard-kills. For imbalanced binary targets (< 5% positive),
+    uses per-feature AUC instead of Pearson correlation — correlation is noisy
+    when few positives exist. Categorical columns get a spread-of-group-means
     proxy in place of a real MI/IV computation — cheap and directionally right
     for a screening stage, not a substitute for stage 6."""
+    from sklearn.metrics import roc_auc_score
+
     y = df[target]
+    is_binary_imbalanced = (
+        pd.api.types.is_numeric_dtype(y)
+        and y.nunique() == 2
+        and y.mean() < 0.05
+    )
+
     scores = {}
     for col in candidates:
         if pd.api.types.is_numeric_dtype(df[col]) and pd.api.types.is_numeric_dtype(y):
-            corr = df[col].corr(y)
-            scores[col] = float(abs(corr)) if pd.notna(corr) else 0.0
+            if is_binary_imbalanced:
+                # AUC is more informative for imbalanced targets
+                try:
+                    x_clean = df[col].fillna(df[col].median())
+                    auc = roc_auc_score(y, x_clean)
+                    scores[col] = float(abs(auc - 0.5) * 2)
+                except (ValueError, TypeError):
+                    scores[col] = 0.0
+            else:
+                corr = df[col].corr(y)
+                scores[col] = float(abs(corr)) if pd.notna(corr) else 0.0
         else:
             grp = df.groupby(col)[target].mean()
             scores[col] = float(grp.std()) if len(grp) > 1 and pd.notna(grp.std()) else 0.0

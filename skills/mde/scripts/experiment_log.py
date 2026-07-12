@@ -32,11 +32,34 @@ def save_log(log, path):
         json.dump(log, f, indent=2)
 
 
+def load_contract_metric(contract_path=".eds/models/validation_contract.json"):
+    """Read the metric from the validation contract."""
+    if not os.path.exists(contract_path):
+        return None
+    with open(contract_path) as f:
+        return json.load(f).get("metric")
+
+
 def log_experiment(log_path, name, model_type, params, metric_name,
                    metric_value, contract_hash, seed=None,
                    train_time_s=None, notes=None, feature_set=None,
-                   fold_scores=None):
-    """Append an experiment entry to the log."""
+                   fold_scores=None, override_metric=None):
+    """Append an experiment entry to the log.
+
+    Validates metric_name against the contract metric. Refuses mismatches
+    unless override_metric is provided (with a reason string).
+    """
+    # Validate metric against contract
+    contract_metric = load_contract_metric()
+    if contract_metric and metric_name != contract_metric:
+        if not override_metric:
+            raise ValueError(
+                f"metric_name '{metric_name}' != contract metric '{contract_metric}'. "
+                f"Pass --override-metric '<reason>' to log a non-contract metric."
+            )
+        # Store the override reason
+        notes = (notes or "") + f" [metric-override: {override_metric}]"
+
     log = load_log(log_path)
 
     entry = {
@@ -107,12 +130,15 @@ def main():
     log_cmd.add_argument("--name", required=True)
     log_cmd.add_argument("--model-type", required=True)
     log_cmd.add_argument("--params", default="{}")
-    log_cmd.add_argument("--metric-name", default="roc_auc")
+    log_cmd.add_argument("--metric-name", default=None,
+                         help="Metric name (reads from contract if not specified)")
     log_cmd.add_argument("--metric-value", type=float, required=True)
     log_cmd.add_argument("--contract-hash", required=True)
     log_cmd.add_argument("--seed", type=int)
     log_cmd.add_argument("--train-time-s", type=float)
     log_cmd.add_argument("--notes")
+    log_cmd.add_argument("--override-metric", default=None,
+                         help="Reason for using a non-contract metric (bypasses validation)")
     log_cmd.add_argument("--log-path", default=".eds/models/experiment_log.json")
 
     show_cmd = sub.add_parser("show")
@@ -121,12 +147,21 @@ def main():
     args = ap.parse_args()
 
     if args.cmd == "log":
-        entry = log_experiment(
-            args.log_path, args.name, args.model_type,
-            args.params, args.metric_name, args.metric_value,
-            args.contract_hash, seed=args.seed,
-            train_time_s=args.train_time_s, notes=args.notes,
-        )
+        # Resolve metric: explicit > contract > fallback
+        metric_name = args.metric_name
+        if not metric_name:
+            metric_name = load_contract_metric() or "roc_auc"
+        try:
+            entry = log_experiment(
+                args.log_path, args.name, args.model_type,
+                args.params, metric_name, args.metric_value,
+                args.contract_hash, seed=args.seed,
+                train_time_s=args.train_time_s, notes=args.notes,
+                override_metric=args.override_metric,
+            )
+        except ValueError as e:
+            print(f"REFUSED: {e}", file=sys.stderr)
+            sys.exit(1)
         print(f"Logged: {entry['name']} — {entry['metric_name']}={entry['metric_value']:.4f}")
 
     elif args.cmd == "show":

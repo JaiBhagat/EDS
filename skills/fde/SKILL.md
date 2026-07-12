@@ -113,6 +113,28 @@ Run the loop **inline** for a small campaign (a dozen candidates on a notebook p
 
 Every accept/reject decision must be traceable to a `feature_journal.md` entry.
 
+## Pipeline output (P1.5)
+
+At campaign end, the FDE stage produces **two artifacts** beyond the journal:
+
+1. **`.eds/features/feature_spec.json`** — ordered feature list + dtypes + formulas for engineered features
+2. **`.eds/features.py`** — a `build_features(df) -> df` function that reproduces the full feature-engineering pipeline
+
+The `features.py` file is the **single source of truth** for feature transforms. Both the notebook and `inference.py` (model-handoff) import it. This prevents train/serve skew.
+
+Generate with:
+```
+python skills/fde/scripts/export_features_pipeline.py \
+    --catalog-path .eds/features/feature_catalog.json \
+    --out-dir .eds/features/
+```
+
+The generated `features.py` encodes:
+- Column selections and type coercions
+- Engineered feature formulas (from the catalog's `formula` field)
+- Feature ordering matching the model's training order
+- A `FEATURE_NAMES` constant for downstream consumers
+
 ## Handoff contract
 
 On completing this stage: (1) mark the Plan entry for this stage `done` with the gate-record reference, (2) read the Plan in `.eds/BRIEF.md`, (3) **state the next pending stage and proceed into it** — unless that stage carries a `user-signoff` gate, in which case present the decision and stop. Never end a turn with a generic "what next?" while the Plan has a pending ungated stage.

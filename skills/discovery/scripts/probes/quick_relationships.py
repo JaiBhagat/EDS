@@ -48,6 +48,11 @@ def main():
     else:
         y = y_raw.values
 
+    # Detect imbalance: if binary and positive rate < 5%, use AUC instead of correlation
+    positive_rate = y.mean() if is_classification and len(set(y)) == 2 else None
+    use_auc = positive_rate is not None and positive_rate < 0.05
+    signal_method = "univariate AUC (imbalanced)" if use_auc else "|corr|"
+
     results = []
 
     if numeric_cols:
@@ -55,9 +60,12 @@ def main():
         for col in numeric_cols:
             if X_num[col].nunique() <= 1:
                 continue
-            corr = np.corrcoef(X_num[col], y)[0, 1] if not is_classification else _point_biserial(X_num[col], y)
-            if pd.notna(corr):
-                results.append((col, "numeric", abs(corr)))
+            if use_auc:
+                score = _univariate_auc(X_num[col].values, y)
+            else:
+                corr = np.corrcoef(X_num[col], y)[0, 1] if not is_classification else _point_biserial(X_num[col], y)
+                score = abs(corr) if pd.notna(corr) else 0.0
+            results.append((col, "numeric", score))
 
     if categorical_cols:
         X_cat = df[categorical_cols].fillna("__missing__").astype(str).apply(LabelEncoder().fit_transform)
@@ -70,7 +78,9 @@ def main():
             pass
 
     results.sort(key=lambda r: r[2], reverse=True)
-    print("- top signal (sorted by strength; numeric=|corr|, categorical=MI, not directly comparable):")
+    if use_auc:
+        print(f"- NOTE: target positive rate = {positive_rate:.4f} ��� using univariate AUC (not correlation) for numeric features")
+    print(f"- top signal (sorted by strength; numeric={signal_method}, categorical=MI, not directly comparable):")
     for col, kind, score in results[:15]:
         flag = ""
         if kind == "numeric" and score >= args.leak_threshold:
@@ -84,6 +94,21 @@ def main():
 def _point_biserial(x, y_binary):
     """Correlation between a numeric feature and a binary/encoded target."""
     return np.corrcoef(x, y_binary)[0, 1]
+
+
+def _univariate_auc(x, y_binary):
+    """AUC of a single feature as a univariate predictor.
+
+    More informative than correlation for imbalanced targets where the
+    few positives don't move Pearson much against the mass of negatives.
+    """
+    from sklearn.metrics import roc_auc_score
+    try:
+        auc = roc_auc_score(y_binary, x)
+        # Return distance from 0.5 (random), so higher = more signal
+        return abs(auc - 0.5) * 2  # maps [0.5, 1.0] -> [0.0, 1.0]
+    except ValueError:
+        return 0.0
 
 
 if __name__ == "__main__":

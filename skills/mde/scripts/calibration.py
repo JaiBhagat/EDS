@@ -10,8 +10,12 @@ Usage:
     python calibration.py check <path.csv> --y-true <col> --y-prob <col> \
         [--n-bins 10] [--out .eds/models/calibration_report.json]
 
-    python calibration.py fix <path.csv> --y-true <col> --y-prob <col> \
-        --method isotonic|platt [--out calibrated_probs.csv]
+    python calibration.py fix \
+        --fit-path cal_predictions.csv \
+        --apply-path test_predictions.csv \
+        --y-true <col> --y-prob <col> \
+        --method isotonic|platt \
+        [--out calibrated_probs.csv]
 """
 import argparse
 import json
@@ -119,10 +123,13 @@ def main():
     check_cmd.add_argument("--out", default=".eds/models/calibration_report.json")
 
     fix_cmd = sub.add_parser("fix")
-    fix_cmd.add_argument("path")
+    fix_cmd.add_argument("--fit-path", required=True,
+                         help="CSV with predictions on a held-out calibration split (from train side)")
+    fix_cmd.add_argument("--apply-path", required=True,
+                         help="CSV with predictions on the test set to calibrate")
     fix_cmd.add_argument("--y-true", required=True)
     fix_cmd.add_argument("--y-prob", required=True)
-    fix_cmd.add_argument("--method", choices=["isotonic", "platt"], default="isotonic")
+    fix_cmd.add_argument("--method", choices=["isotonic", "platt"], default="platt")
     fix_cmd.add_argument("--out", default="calibrated_probs.csv")
 
     args = ap.parse_args()
@@ -144,19 +151,50 @@ def main():
         print(f"Report: {args.out}")
 
     elif args.cmd == "fix":
-        df = pd.read_csv(args.path)
-        y_true = df[args.y_true].values.astype(float)
-        y_prob = df[args.y_prob].values.astype(float)
+        from sklearn.metrics import average_precision_score
 
-        # Use first 70% for fitting calibrator, last 30% for output
-        split = int(len(y_true) * 0.7)
+        fit_df = pd.read_csv(args.fit_path)
+        apply_df = pd.read_csv(args.apply_path)
+
+        y_true_fit = fit_df[args.y_true].values.astype(float)
+        y_prob_fit = fit_df[args.y_prob].values.astype(float)
+        y_true_apply = apply_df[args.y_true].values.astype(float)
+        y_prob_apply = apply_df[args.y_prob].values.astype(float)
+
+        # Guardrail 1: refuse isotonic when fit set has < 200 positives
+        n_positives = int(y_true_fit.sum())
+        if args.method == "isotonic" and n_positives < 200:
+            print(f"REFUSED: isotonic calibration requires density — fit set has only "
+                  f"{n_positives} positives (< 200). Use --method platt instead.",
+                  file=sys.stderr)
+            sys.exit(1)
+
+        # Compute pre-calibration AUPRC on apply set
+        auprc_before = average_precision_score(y_true_apply, y_prob_apply)
+
+        # Apply calibration
         calibrated = apply_calibration(
-            y_true[:split], y_prob[:split], y_prob[split:], method=args.method,
+            y_true_fit, y_prob_fit, y_prob_apply, method=args.method,
         )
-        out_df = df.iloc[split:].copy()
+
+        # Guardrail 2: warn if rank-order changed (AUPRC drop)
+        auprc_after = average_precision_score(y_true_apply, calibrated)
+        rank_order_delta = auprc_after - auprc_before
+
+        if rank_order_delta < -0.01:
+            print(f"WARNING: AUPRC dropped after calibration "
+                  f"({auprc_before:.4f} → {auprc_after:.4f}, Δ={rank_order_delta:.4f}). "
+                  f"Monotone calibration should preserve rank-order — "
+                  f"investigate whether the calibration fit set is representative.",
+                  file=sys.stderr)
+
+        out_df = apply_df.copy()
         out_df[f"{args.y_prob}_calibrated"] = calibrated
         out_df.to_csv(args.out, index=False)
-        print(f"Calibrated probabilities written to {args.out} ({len(calibrated)} rows)")
+
+        print(f"Calibrated ({args.method}) on {n_positives} positives from fit set")
+        print(f"AUPRC: {auprc_before:.4f} → {auprc_after:.4f} (Δ={rank_order_delta:+.4f})")
+        print(f"Output: {args.out} ({len(calibrated)} rows)")
 
     else:
         ap.print_help()

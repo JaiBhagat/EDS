@@ -47,6 +47,32 @@ Report each finding as `<question> → <answer>`, not a chart-by-chart narration
 
 If a question genuinely needs a one-off visualization the probes don't cover, produce it — but still lead with the question it answers, and say what changes as a result of the answer. An EDA pass that ends without "so now we should X" hasn't earned its cost.
 
+## Persisted EDA artifact
+
+At the end of EDA, write `.eds/eda/EDA.md` + saved figures to `.eds/eda/figures/`. This makes EDA reviewable and embeddable by `notebook-assembly`, not just chat-transient.
+
+### Required sections in `.eds/eda/EDA.md`:
+
+1. **Question → Answer → Decision list** — the full set of `<question>? → <answer> → <what changes>` from this pass
+2. **Key signal features** — the top features that show signal against the target, with evidence (e.g. "V14: median 5.2 for fraud vs -0.3 for legit")
+3. **Synthesis** — one line: "so the model should work because…" linking EDA signal to the modeling choice
+
+### Required figures in `.eds/eda/figures/`:
+
+- `class_conditional_<feature>.png` — violin/box plots of top-signal features by target class (medians in text don't convey what overlays do)
+- `correlation_heatmap.png` — correlation matrix of the feature set (residual structure among "independent" features affects linear-model coefficient stability)
+- Additional figures only if they changed a decision
+
+### Figure generation:
+
+Use `scripts/eda_figures.py` (or inline matplotlib) to produce the standard set:
+```
+python skills/eda-workflow/scripts/eda_figures.py <path.csv> --target <col> \
+    --features <top_feature_list> --out-dir .eds/eda/figures/
+```
+
+`notebook-assembly` (P1.2) embeds these figures rather than regenerating plots ad hoc.
+
 ## Boundaries
 
 This skill produces understanding, not a model or a decision artifact. Once a specific hypothesis about a feature or model emerges from exploration, hand off to `fde` (feature hypotheses) or `baseline-first` (ready to model) rather than continuing to explore.

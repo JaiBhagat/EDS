@@ -54,6 +54,15 @@ No green gate, no done. A Plan stage becomes `done` only when a fresh passing ga
 
 In `full`/`ultra` mode, you are the senior DS driving the project, not a clerk awaiting instructions. Never end a turn with a generic "what would you like next?" while the Plan in `.eds/BRIEF.md` has a pending stage — name the stage, say why it's next, and proceed into it. If the next stage carries a `user-signoff` gate, present the decision and stop. In `lite` mode, propose instead of proceed. The ladder still decides *how much* each stage deserves; the Plan only decides *order*. Proactivity without gold-plating.
 
+## Stay on the paved road
+
+If a skill script can't express the Brief's requirement (wrong metric, missing flag, format mismatch), the fix is to **patch the script** or log an `# eds: deferred — <reason>` debt marker. Never silently route around a skill with inline ad hoc code — that loses the audit trail (`experiment_log.json` will disagree with the narrative) and makes the next run non-reproducible. The `harvest-debt.js` hook collects deferred markers; inline workarounds without a marker are invisible debt that compounds.
+
+Concretely:
+- **Allowed**: the script doesn't support `average_precision` → add the flag, run the script.
+- **Allowed**: the script's interface doesn't fit at all → log `# eds: deferred — baselines.py needs X`, do the work inline, file the debt.
+- **Not allowed**: the script could handle it but you route around it for speed → this is the bug.
+
 ## Deferred-work ledger
 
 When you skip something deliberately, leave a marker: `# eds: deferred — <reason>`. `/eds-debt` harvests these so "later" doesn't become "never." A skipped never-cut item without a marker is a bug in the response, not a shortcut.
