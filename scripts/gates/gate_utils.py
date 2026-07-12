@@ -54,6 +54,23 @@ def load_json(path: Path) -> dict | list | None:
         return None
 
 
+def check_stage_code(result: "GateResult", eds_root: Path, stage_name: str) -> bool:
+    """Assert the stage recorded its executable code. Reproducibility (axiom 5)
+    is a never-cut item: a stage whose code was never captured cannot be rerun
+    or assembled, regardless of how good its findings were."""
+    path = eds_root / ".eds" / "stage_code" / f"{stage_name}.json"
+    recorded = load_json(path)
+    ok = bool(recorded and recorded.get("cells"))
+    result.check(
+        "stage_code_recorded", ok,
+        f"{path} present with non-empty cells" if ok
+        else f"missing or empty — run `stage_code.py record --stage {stage_name}`",
+    )
+    if ok:
+        result.add_evidence(str(path))
+    return ok
+
+
 class GateResult:
     """Accumulates check results for a single gate run."""
 

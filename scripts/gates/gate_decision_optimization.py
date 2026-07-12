@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from gate_utils import GateResult, find_eds_root, load_json
+from gate_utils import GateResult, check_stage_code, find_eds_root, load_json
 
 # Patterns indicating test-frame contamination
 TEST_FRAME_PATTERNS = re.compile(
@@ -113,6 +113,9 @@ def run(project_dir: str = "."):
         if test_contamination
         else "no test-frame contamination detected",
     )
+
+    # Stage code recorded (axiom 5 — reproducibility)
+    check_stage_code(gate, root, "decision_optimization")
 
     gate.write_and_exit(root)
 

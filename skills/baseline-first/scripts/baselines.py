@@ -45,10 +45,13 @@ METRIC_REGISTRY = {
 }
 
 
-def resolve_metric(explicit_metric: str | None) -> str:
-    """Resolve which metric to use: explicit > contract > default."""
+def resolve_metric(explicit_metric: str | None) -> tuple[str, str]:
+    """Resolve which metric to use: explicit > contract > Brief > default.
+
+    Returns (metric_name, source) so the audit trail shows where the metric came from.
+    """
     if explicit_metric:
-        return explicit_metric
+        return explicit_metric, "explicit"
     # Try reading from validation contract
     contract_path = ".eds/models/validation_contract.json"
     if os.path.exists(contract_path):
@@ -56,8 +59,18 @@ def resolve_metric(explicit_metric: str | None) -> str:
             contract = json.load(f)
         metric = contract.get("metric")
         if metric:
-            return metric
-    return "roc_auc"
+            return metric, "contract"
+    # Contract may not exist yet — baseline-first runs before MDE. Read the Brief.
+    try:
+        import sys as _sys
+        _sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "mde", "scripts"))
+        from validation_contract import read_brief_metric
+        brief_metric = read_brief_metric()
+        if brief_metric:
+            return brief_metric, "brief"
+    except (ImportError, ValueError) as e:
+        print(f"- WARNING: could not read Brief metric ({e})", file=sys.stderr)
+    return "roc_auc", "default"
 
 
 def time_split(df, date_col, split_frac):
@@ -122,12 +135,12 @@ def main():
     ap.add_argument("--sample-rows", type=int, default=200_000)
     args = ap.parse_args()
 
-    metric_name = resolve_metric(args.metric)
+    metric_name, metric_source = resolve_metric(args.metric)
     class_weight = "balanced" if args.class_weight == "balanced" else None
 
     df = pd.read_csv(args.path, nrows=args.sample_rows)
     print(f"## baselines: {args.path} [{args.target}]")
-    print(f"- metric: {metric_name}")
+    print(f"- metric: {metric_name} (source: {metric_source})")
     if args.target not in df.columns:
         print(f"- FAILED — target column '{args.target}' not found")
         return

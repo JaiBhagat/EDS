@@ -33,9 +33,17 @@ Before entering the MDE loop:
 
 ### Step 1 — Lock the validation contract
 
-Run `python skills/mde/scripts/validation_contract.py create <data.csv> --target <col> [--time-col <col>] [--entity-col <col>]`.
+Verify the contract created by `evaluation-design` still exists and its hash is unchanged:
+
+    python skills/mde/scripts/validation_contract.py verify .eds/models/validation_contract.json
+
+Only create a new contract if `evaluation-design` was skipped (e.g. when entering MDE directly):
+
+    python skills/mde/scripts/validation_contract.py create <data.csv> --target <col> [--time-col <col>] [--entity-col <col>]
 
 The contract defines: metric, split strategy, seed, fold count. Once written, its hash locks it — every experiment must reference this hash. A changed contract means all prior experiments are invalidated. Present the contract to the user for sign-off before proceeding.
+
+For classification with a calibration need, the split is three-way: train / calibration / test. Carve the calibration slice from the train side (last 10–15% by time), never from test. Record the boundaries in the contract.
 
 ### Step 2 — Initialize the candidate table
 
@@ -86,27 +94,64 @@ Run `python skills/mde/scripts/champion_selection.py select` — it computes the
 
 If the SE floor says "stop", proceed to calibration. If it says "room to improve" AND the diagnosis suggests specific candidates, run another round (back to Step 4).
 
+When comparing the champion against the bar, use the paired bootstrap comparison mode:
+
+    python scripts/lib/bootstrap_ci.py <predictions.csv> \
+        --y-true <col> --y-prob <col> --y-prob-baseline <baseline_col> \
+        --metric <metric>
+
 ### Step 7 — Calibration
 
-Before any threshold is set, check calibration:
+Calibration needs a fit set that is **neither train nor test**. If the split in Step 1 didn't
+carve one, do it now: take the last 10–15% of *train* (by time, for temporal splits) as the
+calibration slice. Never fit a calibrator on the test set — that is the calibration-leakage
+failure this interface exists to prevent.
 
-```
-python skills/mde/scripts/calibration.py check <predictions.csv> \
-    --y-true <col> --y-prob <col>
-```
+Check calibration on the test predictions:
 
-If the verdict is "poorly calibrated" or worse, apply recalibration:
+    python skills/mde/scripts/calibration.py check <test_predictions.csv> \
+        --y-true <col> --y-prob <col>
 
-```
-python skills/mde/scripts/calibration.py fix <predictions.csv> \
-    --y-true <col> --y-prob <col> --method isotonic
-```
+If the verdict is "poorly calibrated" or worse, fit on the calibration slice and apply to test:
+
+    python skills/mde/scripts/calibration.py fix \
+        --fit-path <cal_predictions.csv> \
+        --apply-path <test_predictions.csv> \
+        --y-true <col> --y-prob <col> \
+        --method platt
+
+Use `platt` unless the calibration set has ≥200 positives (the script refuses isotonic below
+that). The script warns if AUPRC drops after calibration — a drop means the fit set isn't
+representative, and is a stop-and-investigate signal, not a number to report.
+
+Then run the post-calibration assertion gate:
+
+    python scripts/gates/gate_assertions.py calibration \
+        --pre-path <test_predictions.csv> --post-path <calibrated_probs.csv> \
+        --y-true <col> --y-prob-pre <col> --y-prob-post <col>_calibrated
+
+Any headline metric on the calibrated predictions must carry a bootstrap interval:
+
+    python scripts/lib/bootstrap_ci.py <test_predictions.csv> \
+        --y-true <col> --y-prob <col>_calibrated --metric <metric>
 
 The calibration report is required evidence for the decision-optimization gate downstream.
 
 ### Step 8 — Champion selection
 
 Run `python skills/mde/scripts/champion_selection.py select` to pick the Pareto-optimal champion (maximize metric, minimize complexity — parsimony wins ties).
+
+Serialize the champion immediately — `champion.json` is metadata, not a model. Nothing
+downstream (`model-handoff`, `inference.py`) can proceed without the fitted object:
+
+```python
+import joblib
+joblib.dump(champion_model, ".eds/models/champion_model.joblib")
+if calibrator is not None:
+    joblib.dump(calibrator, ".eds/models/calibrator.joblib")
+```
+
+Record both paths in `champion.json` under `artifact_paths`.
 
 ### Step 9 — Confirmation holdout touch
 
@@ -137,5 +182,13 @@ The champion ships with: input drift (PSI), output drift (KS), performance decay
 - **No silent contract changes.** Changing the split or metric mid-experiment invalidates all prior results. Write a new contract and re-run.
 
 ## Handoff contract
+
+Before marking the Plan entry `done`, record the code this stage actually ran:
+
+    python scripts/lib/stage_code.py record --stage model --cells-json '<...>'
+
+Record the *real* code — the pandas/sklearn that produced the numbers in the gate record,
+not a paraphrase. `notebook-assembly` assembles the final notebook from these records; a
+stage that doesn't record its code produces an empty cell in the deliverable notebook.
 
 On completing this stage: (1) mark the Plan entry for this stage `done` with the gate-record reference, (2) read the Plan in `.eds/BRIEF.md`, (3) **state the next pending stage and proceed into it** — unless that stage carries a `user-signoff` gate, in which case present the decision and stop. Never end a turn with a generic "what next?" while the Plan has a pending ungated stage.

@@ -42,23 +42,109 @@ def detect_split_strategy(df, time_col=None, entity_col=None):
     return "random"
 
 
-def read_brief_metric(brief_path: str = ".eds/BRIEF.md") -> str | None:
-    """Parse the primary metric from the Brief's Stage 5 section."""
+METRIC_ALIASES: dict[str, str] = {
+    "average precision": "average_precision",
+    "auprc": "average_precision",
+    "pr-auc": "average_precision",
+    "pr auc": "average_precision",
+    "average_precision": "average_precision",
+    "roc-auc": "roc_auc",
+    "roc auc": "roc_auc",
+    "auc": "roc_auc",
+    "roc_auc": "roc_auc",
+    "f1": "f1",
+    "f1 score": "f1",
+    "precision@k": "precision_at_k",
+    "precision at k": "precision_at_k",
+    "rmse": "neg_rmse",
+    "neg_rmse": "neg_rmse",
+    "mae": "neg_mae",
+    "neg_mae": "neg_mae",
+    "recall": "recall",
+    "precision": "precision",
+}
+
+
+def _normalize_metric_phrase(phrase: str) -> str | None:
+    """Map a free-text metric phrase from the Brief to a canonical scorer name.
+
+    Handles: bold markers, backticks, parenthetical aliases, trailing prose.
+    'Average Precision (AUPRC)' -> 'average_precision'
+    """
     import re
-    if not os.path.exists(brief_path):
+    if not phrase:
         return None
-    with open(brief_path) as f:
-        content = f.read()
-    # Look for "Primary metric" in Stage 5 or metric table
+    # Strip markdown emphasis / code ticks
+    text = re.sub(r"[*`_]", "", phrase).strip()
+    # Cut trailing prose after an em-dash / hyphen-space
+    text = re.split(r"\s+[—–-]\s+", text)[0].strip()
+    lowered = text.lower()
+
+    # Try the parenthetical alias FIRST — 'Average Precision (AUPRC)' should
+    # resolve even if only the acronym is in the alias map.
+    paren = re.search(r"\(([^)]+)\)", lowered)
+    if paren:
+        key = paren.group(1).strip()
+        if key in METRIC_ALIASES:
+            return METRIC_ALIASES[key]
+    # Then the phrase with any parenthetical stripped
+    base = re.sub(r"\([^)]*\)", "", lowered).strip()
+    if base in METRIC_ALIASES:
+        return METRIC_ALIASES[base]
+    # Last resort: any alias appearing as a whole word in the phrase
+    for alias, canonical in METRIC_ALIASES.items():
+        if re.search(rf"\b{re.escape(alias)}\b", lowered):
+            return canonical
+    return None
+
+
+def _extract_metric_phrase(content: str) -> str | None:
+    """Extract the raw metric phrase from Brief content (testable against a string)."""
+    import re
     patterns = [
-        r"[Pp]rimary\s+metric[:\s]+[`\"]?(\w+)[`\"]?",
-        r"\|\s*metric\s*\|\s*[`\"]?(\w+)[`\"]?",
+        # Markdown table row: | Primary metric | **Average Precision (AUPRC)** |
+        r"\|\s*[Pp]rimary\s+metric\s*\|\s*([^|\n]+?)\s*\|",
+        # Prose: Primary metric: **Average Precision (AUPRC)** — ...
+        r"[Pp]rimary\s+metric\s*[:\-]\s*([^\n]+)",
+        # Bolded label variant: **Primary metric** — Average Precision
+        r"\*\*[Pp]rimary\s+metric\*\*\s*[:\-—]\s*([^\n]+)",
     ]
     for pat in patterns:
         m = re.search(pat, content)
         if m:
-            return m.group(1)
+            return m.group(1).strip()
     return None
+
+
+def read_brief_metric(brief_path: str = ".eds/BRIEF.md") -> str | None:
+    """Parse the primary metric from the Brief. Returns a canonical scorer name.
+
+    Raises ValueError if a metric is declared but unrecognizable — a Brief that
+    names a metric the tooling can't honor is an error, not a silent default.
+    """
+    if not os.path.exists(brief_path):
+        return None
+    with open(brief_path) as f:
+        content = f.read()
+    return read_brief_metric_from_text(content)
+
+
+def read_brief_metric_from_text(content: str) -> str | None:
+    """Parse the primary metric from Brief text. Testable without a file.
+
+    Raises ValueError if a metric phrase is found but unrecognizable.
+    """
+    phrase = _extract_metric_phrase(content)
+    if phrase is None:
+        return None
+    canonical = _normalize_metric_phrase(phrase)
+    if canonical is None:
+        raise ValueError(
+            f"Brief declares primary metric '{phrase}' but it maps to no "
+            f"known scorer. Add it to METRIC_ALIASES or fix the Brief — "
+            f"refusing to silently default."
+        )
+    return canonical
 
 
 def select_metric(task_type: str, brief_metric: str | None = None,

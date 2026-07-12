@@ -79,4 +79,12 @@ This skill produces understanding, not a model or a decision artifact. Once a sp
 
 ## Handoff contract
 
+Before marking the Plan entry `done`, record the code this stage actually ran:
+
+    python scripts/lib/stage_code.py record --stage eda --cells-json '<...>'
+
+Record the *real* code — the pandas/sklearn that produced the numbers in the gate record,
+not a paraphrase. `notebook-assembly` assembles the final notebook from these records; a
+stage that doesn't record its code produces an empty cell in the deliverable notebook.
+
 On completing this stage: (1) mark the Plan entry for this stage `done` with the gate-record reference, (2) read the Plan in `.eds/BRIEF.md`, (3) **state the next pending stage and proceed into it** — unless that stage carries a `user-signoff` gate, in which case present the decision and stop. Never end a turn with a generic "what next?" while the Plan has a pending ungated stage.

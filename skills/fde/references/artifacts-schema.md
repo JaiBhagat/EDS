@@ -37,6 +37,34 @@ One entry per hypothesis outcome, eviction, holdout touch, or stop decision:
 - [stop] campaign `churn-2026-q3` — marginal-gain floor: best candidate lift 0.003 < cross-fold SE 0.006
 ```
 
+### Deliberation entries
+
+For months-long iterative exploration, the journal also records *why we went down this road at all* — including rejected directions, the human's domain input, and dead ends. This is the institutional memory that stops session 12 from re-proposing what session 3 already killed.
+
+```markdown
+## Deliberation round <n> — <date>
+
+### Proposed directions
+- **<family>** — <claim> — cost: <estimate> — [pursued | deprioritized | killed]
+
+### Deprioritized (and why)
+- **<family>** — <reason>
+
+### User steer
+<what the human said, including domain knowledge that changed the ranking>
+
+### Killed families (and why)
+- **<family>** — <reason — often domain knowledge, not evidence>
+
+### Open questions carried forward
+- <...>
+
+### Evidence from previous round that shaped this one
+- <...>
+```
+
+Use `journal.py summarize-deliberations` to extract only these entries — a new session catches up on the *thinking* in one call without loading the full journal.
+
 ## `candidate_features.md` — current round only
 
 Live candidates for the round in progress: hypothesis link, construction summary, current funnel position. Overwritten each round, not append-only.

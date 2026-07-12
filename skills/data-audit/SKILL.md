@@ -47,10 +47,27 @@ Emit one compact audit block per table, not a narrative:
 
 If any check fails, the analysis does not proceed past it silently — either fix the data issue, or mark it explicitly: `# eds: deferred — <reason>` and say what's now unreliable because of the skip.
 
+## Wide-table triage (>100 columns)
+
+When the joined table exceeds ~100 columns, run the column triage before FDE starts:
+
+    python skills/data-audit/scripts/column_triage.py <path.csv> --target <col> \
+        [--source-label main] [--out .eds/data/column_triage.csv]
+
+This produces a per-column triage table (`DROP-CANDIDATE`, `HIGH-SIGNAL`, `NEEDS-DOMAIN-INPUT`, `LOW-PRIORITY`) and a markdown summary. The `NEEDS-DOMAIN-INPUT` bucket is the discussion list — surface these to the human explicitly. **This skill does NOT drop anything.** It buckets and reports; the human and the FDE funnel decide.
+
 ## Boundaries
 
 This is a probe-driven check, not an EDA. If a finding raises "why does this look like this" (a business question), stop and ask the user — don't guess a domain explanation for a data anomaly. Hand off exploratory questions beyond audit scope to `eda-workflow`.
 
 ## Handoff contract
+
+Before marking the Plan entry `done`, record the code this stage actually ran:
+
+    python scripts/lib/stage_code.py record --stage data_audit --cells-json '<...>'
+
+Record the *real* code — the pandas/sklearn that produced the numbers in the gate record,
+not a paraphrase. `notebook-assembly` assembles the final notebook from these records; a
+stage that doesn't record its code produces an empty cell in the deliverable notebook.
 
 On completing this stage: (1) mark the Plan entry for this stage `done` with the gate-record reference, (2) read the Plan in `.eds/BRIEF.md`, (3) **state the next pending stage and proceed into it** — unless that stage carries a `user-signoff` gate, in which case present the decision and stop. Never end a turn with a generic "what next?" while the Plan has a pending ungated stage.

@@ -144,19 +144,26 @@ def stage_5_redundancy(df, candidates, corr_cluster_cutoff=0.9):
     survivors, evictions = [], []
     numeric = [c for c in candidates if pd.api.types.is_numeric_dtype(df[c])]
     non_numeric = [c for c in candidates if c not in numeric]
-    kept = []
-    for col in numeric:
-        redundant_with, redundant_corr = None, None
-        for k in kept:
-            corr = df[col].corr(df[k])
-            if pd.notna(corr) and abs(corr) >= corr_cluster_cutoff:
-                redundant_with, redundant_corr = k, corr
-                break
-        if redundant_with:
-            evictions.append((col, f"correlation {redundant_corr:.3f} with kept feature {redundant_with} — redundant"))
-        else:
-            kept.append(col)
-            survivors.append(col)
+
+    if numeric:
+        corr_matrix = df[numeric].corr().abs()  # ONE pass, vectorized
+        kept = []
+        for col in numeric:
+            redundant_with = next(
+                (k for k in kept
+                 if pd.notna(corr_matrix.at[col, k])
+                 and corr_matrix.at[col, k] >= corr_cluster_cutoff),
+                None,
+            )
+            if redundant_with:
+                evictions.append((
+                    col,
+                    f"correlation {corr_matrix.at[col, redundant_with]:.3f} with kept "
+                    f"feature {redundant_with} — redundant",
+                ))
+            else:
+                kept.append(col)
+                survivors.append(col)
     survivors.extend(non_numeric)
     return survivors, evictions
 

@@ -24,6 +24,15 @@ license: MIT
 3. **Caveats.** What could make this wrong or not generalize (a segment it doesn't hold for, a time window it was measured over, an assumption baked into the label or metric). State them plainly, don't bury them in a methodology appendix where they won't be read before a decision is made.
 4. **Recommendation.** What to actually do, tied to the decision the analysis served (per axiom 1 — if there's no recommendation, question whether the analysis needed to exist).
 
+## Computed intervals, not asserted ranges
+
+Any headline metric computed on fewer than ~500 positives MUST carry a computed bootstrap interval — never assert a range. Run:
+
+    python scripts/lib/bootstrap_ci.py <predictions.csv> \
+        --y-true <col> --y-prob <col> --metric <metric>
+
+Report the interval, not just the point estimate. A report that says "AUC is 0.82" when the 90% bootstrap CI is [0.74, 0.88] is misleading — report both.
+
 ## Numbers carry denominators
 
 Every rate, lift, or count in the report states what it's a fraction/change of. "Reduced churn by 15%" is incomplete; "reduced churn from 8% to 6.8% of the at-risk segment (n=12,400), measured over the 90-day holdout" is a finding a reader can act on and a skeptic can check.

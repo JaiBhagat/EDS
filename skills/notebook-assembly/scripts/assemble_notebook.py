@@ -129,9 +129,33 @@ def build_setup_cells(eds_root: Path, contract: dict | None) -> list[dict]:
     return cells
 
 
+def load_stage_code(stage_name: str, eds_root: Path) -> dict | None:
+    """Load recorded stage code from the ledger."""
+    stage_key = stage_name.lower().replace(" ", "_").replace("-", "_")
+    path = eds_root / "stage_code" / f"{stage_key}.json"
+    if not path.exists():
+        # Also try the original name (with hyphens)
+        alt_key = stage_name.lower().replace(" ", "-")
+        alt_path = eds_root / "stage_code" / f"{alt_key}.json"
+        if alt_path.exists():
+            path = alt_path
+        else:
+            return None
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
 def build_stage_cells(stage: dict, gate_record: dict | None,
                       eds_root: Path) -> list[dict]:
-    """Generate cells for a single Plan stage."""
+    """Generate cells for a single Plan stage.
+
+    Reads recorded code from the stage-code ledger (.eds/stage_code/<stage>.json).
+    If no code was recorded, emits a visible warning and a NotImplementedError
+    cell so the notebook fails loudly on execution rather than looking complete.
+    """
     cells = []
     stage_name = stage.get("stage", stage.get("step", "Unknown"))
     status = stage.get("status", "unknown")
@@ -152,13 +176,26 @@ def build_stage_cells(stage: dict, gate_record: dict | None,
 
     cells.append(create_cell("markdown", header_lines))
 
-    # Placeholder code cell for the stage
-    code_lines = [
-        f"# Stage: {stage_name}\n",
-        f"# Status: {status}\n",
-        "# TODO: Fill in reproducible code from session artifacts\n",
-    ]
-    cells.append(create_cell("code", code_lines))
+    # Read recorded code from the stage-code ledger
+    recorded = load_stage_code(stage_name, eds_root)
+    if recorded and recorded.get("cells"):
+        for c in recorded["cells"]:
+            kind = c.get("kind", "code")
+            source = c["source"]
+            if isinstance(source, str):
+                source = source.split("\n")
+            cells.append(create_cell(kind, source))
+    else:
+        # Be honest — do not emit a silent stub that passes hygiene
+        cells.append(create_cell("markdown", [
+            f"> ⚠️ **No recorded code for stage `{stage_name}`.**\n",
+            "> This stage did not call `stage_code.py record`, so its code could not be\n",
+            "> assembled. The notebook is INCOMPLETE for this stage.\n",
+        ]))
+        cells.append(create_cell("code", [
+            f"raise NotImplementedError('Stage {stage_name} has no recorded code — "
+            f"re-run the stage with code recording enabled.')\n"
+        ]))
 
     return cells
 

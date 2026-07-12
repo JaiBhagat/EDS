@@ -17,6 +17,15 @@ The method (hypothesis-family loop, staged evaluation funnel, catalog/journal ar
 4. **Stay isolated.** Load only the feature catalog and current shortlist into context — never the full journal (grep it if a specific past decision needs checking). Return round summaries to the calling context, not raw per-candidate noise.
 5. **Stop on a stated criterion** (marginal-gain floor, budget exhausted, or the Brief's timeline), never on running out of ideas mid-round.
 
+## Deliberation is not delegated
+
+Isolation applies to funnel mechanics (per-candidate scores, eviction logs, fold noise) —
+NOT to the deliberation phase. Hypothesis brainstorming happens **in the main thread with
+the user**, not inside this agent. If a campaign needs a deliberation round, return to the
+caller with the proposal set and stop; do not instantiate a large hypothesis space
+unilaterally just because the campaign is large. Large is exactly when the human's steer is
+most valuable, because the search space is too big to brute-force honestly (F7).
+
 ## Output
 
 ```

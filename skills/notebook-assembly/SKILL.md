@@ -19,10 +19,10 @@ The notebook is a *derived artifact*, not a primary one. It's assembled from wha
 
 ## Why assemble instead of write
 
-1. **Fidelity** — each cell maps 1:1 to a Plan stage with a passing gate record
+1. **Fidelity** — each cell contains the actual code that was run for each stage (from `.eds/stage_code/`), not stubs or paraphrases
 2. **Regenerable** — if a stage is redone, re-run assembly and the notebook updates
 3. **Auditable** — gate record references in markdown headers prove what was verified
-4. **Hygiene** — maturity_check runs automatically; rung-2 blockers fail the build
+4. **Hygiene** — maturity_check runs automatically; rung-2 blockers fail the build. A notebook containing `NotImplementedError` stubs or `# TODO` cells fails the check.
 
 ## Prerequisites
 
@@ -30,6 +30,7 @@ The notebook is a *derived artifact*, not a primary one. It's assembled from wha
 2. Plan stages are marked `done` with gate-record references
 3. `.eds/verification/` contains passing gate records for each stage
 4. `.eds/models/bundle/` exists (model-handoff complete)
+5. Every completed stage has a record in `.eds/stage_code/` — stages that didn't record code cannot be assembled
 
 ## Assembly process
 

@@ -92,6 +92,12 @@ class TestGateDataAudit:
              "audited_at": datetime.now(timezone.utc).isoformat()}
         ]
         (eds_dir / "data-manifest.json").write_text(json.dumps(manifest))
+        # Stage code record required by gate enforcement (A4f)
+        sc_dir = eds_dir / "stage_code"
+        sc_dir.mkdir()
+        (sc_dir / "data_audit.json").write_text(json.dumps(
+            {"stage": "data_audit", "cells": [{"kind": "code", "source": "audit()"}]}
+        ))
         result = _run_gate("gate_data_audit", str(tmp_path))
         assert result["result"] == "pass"
 
@@ -113,6 +119,12 @@ class TestGateReport:
             "- Model AUC = 0.82 → `models/champion_eval.json`\n"
             "- Lift of 3.1x at top decile [fig 1]\n"
         )
+        # Stage code record required by gate enforcement (A4f)
+        sc_dir = eds_dir / "stage_code"
+        sc_dir.mkdir()
+        (sc_dir / "report.json").write_text(json.dumps(
+            {"stage": "report", "cells": [{"kind": "code", "source": "report()"}]}
+        ))
         result = _run_gate("gate_report", str(tmp_path))
         assert result["result"] == "pass"
 

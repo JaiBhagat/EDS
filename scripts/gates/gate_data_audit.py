@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from gate_utils import GateResult, find_eds_root, load_json
+from gate_utils import GateResult, check_stage_code, find_eds_root, load_json
 
 REQUIRED_MANIFEST_FIELDS = {"path", "row_count", "audited_at"}
 
@@ -100,6 +100,9 @@ def run(project_dir: str = "."):
         len(stale) == 0,
         "; ".join(stale[:3]) if stale else "all audits within 30-day window",
     )
+
+    # Check 6: Stage code recorded (axiom 5 — reproducibility)
+    check_stage_code(gate, root, "data_audit")
 
     gate.write_and_exit(root)
 

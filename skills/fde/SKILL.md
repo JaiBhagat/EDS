@@ -44,10 +44,48 @@ Consume `data-audit`'s report first; if the target table hasn't been audited thi
 ## The loop
 
 ```
-OBSERVE → HYPOTHESIZE → ASK/PROBE → ENGINEER → EVALUATE (funnel) → INTERPRET → PRUNE → repeat
+OBSERVE → DELIBERATE → HYPOTHESIZE → ASK/PROBE → ENGINEER → EVALUATE (funnel) → INTERPRET → PRUNE → repeat
 ```
 
 1. **Observe** — read the Brief, the audit output, the current `feature_catalog.json`, and (round ≥2) the previous round's interpretation. What signal is already represented; what isn't?
+
+### 1.5. The deliberation phase (campaigns > ~30 candidates, or whenever the user asks to think together)
+
+Before instantiating hypotheses, run a **brainstorm round with the user**. This is not a
+formality and not a status update — it is where the actual feature thinking happens. The
+funnel evaluates; the deliberation decides *what is worth evaluating at all*, which is the
+judgment the funnel cannot make.
+
+Bring to the conversation, in this order:
+
+1. **What the data says** — the column-triage table (`data-audit`'s `column_triage.csv`),
+   grouped by source, with the `NEEDS-DOMAIN-INPUT` bucket surfaced first. These are the
+   columns whose meaning you cannot infer and the human can.
+2. **What you'd propose, and why** — 5–10 candidate hypothesis *directions* (not individual
+   features), each stated as: the family, the claim, the columns it would draw on, why you
+   think it carries signal, what would make it fail, and roughly what it costs. Argue for
+   them; don't just list them.
+3. **What you'd deprioritize, and why** — the directions you considered and would NOT pursue,
+   with reasons. A brainstorm that only proposes is a sales pitch, not a discussion. This is
+   often where the human catches something you got wrong.
+4. **What you don't know** — the domain questions that would change your ranking. Ask them.
+   Per the Discovery prime directive: ask the user about the world, ask the data about the
+   data — never spend the user's attention on something a probe could answer.
+
+Then **stop and discuss.** Do not proceed to ENGINEER from a deliberation round without the
+user's steer — this phase carries an implicit `user-signoff` gate. The user may redirect,
+add domain knowledge that kills a whole family cheaply, or ask you to think again. That
+iteration is the point; it is not overhead to be minimized.
+
+Record the round in `feature_journal.md` as a `## Deliberation round <n>` entry (see B4):
+what was proposed, what the user steered toward or away from, and the reasoning on both
+sides. The next session reads this and does not re-litigate settled ground.
+
+**On repeat rounds:** open by reading the previous deliberation entries. Say what changed
+since — what the last round's features actually did in the funnel, which hypotheses were
+confirmed or killed, and what that implies for the next direction. A round-2 brainstorm that
+ignores round-1's evidence is a wasted round.
+
 2. **Hypothesize** — instantiate a family template from `references/hypotheses/*.md` against an observed gap. Each hypothesis is an object: `{id, family, claim, expected direction, cost estimate, availability check, priority}` — never a vibe.
 3. **Ask / Probe** — the Discovery prime directive applies verbatim: ask the user about the world, ask the data about the data. Domain meaning goes to the user in small batches; anything measurable (does the link table actually join? what's event density per entity?) is a sampled probe — use `scripts/probes/structure_probes.py`.
 4. **Engineer** — build candidates for surviving hypotheses only, point-in-time correct by construction, one function per feature, registered in `feature_catalog.json` at birth via `scripts/catalog.py`.
@@ -113,6 +151,17 @@ Run the loop **inline** for a small campaign (a dozen candidates on a notebook p
 
 Every accept/reject decision must be traceable to a `feature_journal.md` entry.
 
+## Assertion gates
+
+At campaign completion, run the assertion gate to verify the selected feature set and split integrity:
+
+    python scripts/gates/gate_assertions.py features \
+        --catalog-path .eds/features/feature_catalog.json \
+        --selected-path .eds/features/selected_features.md
+
+    python scripts/gates/gate_assertions.py split \
+        --contract-path .eds/models/validation_contract.json
+
 ## Pipeline output (P1.5)
 
 At campaign end, the FDE stage produces **two artifacts** beyond the journal:
@@ -136,5 +185,13 @@ The generated `features.py` encodes:
 - A `FEATURE_NAMES` constant for downstream consumers
 
 ## Handoff contract
+
+Before marking the Plan entry `done`, record the code this stage actually ran:
+
+    python scripts/lib/stage_code.py record --stage fde --cells-json '<...>'
+
+Record the *real* code — the pandas/sklearn that produced the numbers in the gate record,
+not a paraphrase. `notebook-assembly` assembles the final notebook from these records; a
+stage that doesn't record its code produces an empty cell in the deliverable notebook.
 
 On completing this stage: (1) mark the Plan entry for this stage `done` with the gate-record reference, (2) read the Plan in `.eds/BRIEF.md`, (3) **state the next pending stage and proceed into it** — unless that stage carries a `user-signoff` gate, in which case present the decision and stop. Never end a turn with a generic "what next?" while the Plan has a pending ungated stage.

@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from gate_utils import GateResult, find_eds_root
+from gate_utils import GateResult, check_stage_code, find_eds_root
 
 # A "claim" is a number in a context that looks like a finding/result
 CLAIM_RE = re.compile(
@@ -151,6 +151,9 @@ def run(project_dir: str = "."):
             True,
             "no quantitative claims found in report (qualitative-only report)",
         )
+
+    # Stage code recorded (axiom 5 — reproducibility)
+    check_stage_code(gate, root, "report")
 
     gate.write_and_exit(root)
 

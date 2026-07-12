@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from gate_utils import GateResult, find_eds_root
+from gate_utils import GateResult, check_stage_code, find_eds_root
 
 # Patterns that indicate an evidence reference
 EVIDENCE_REF_RE = re.compile(
@@ -124,6 +124,9 @@ def run(project_dir: str = "."):
             False,
             "no finding-like assertions found in EDA artifacts",
         )
+
+    # Stage code recorded (axiom 5 — reproducibility)
+    check_stage_code(gate, root, "eda")
 
     gate.write_and_exit(root)
 

@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from gate_utils import GateResult, find_eds_root, load_json
+from gate_utils import GateResult, check_stage_code, find_eds_root, load_json
 
 
 def load_funnel_module(eds_root: Path):
@@ -153,6 +153,9 @@ def run(project_dir: str = "."):
         gate.check("funnel-self-test", True, "funnel module loaded (no self_test function)")
     else:
         gate.check("funnel-self-test", False, "funnel.py not found")
+
+    # Stage code recorded (axiom 5 — reproducibility)
+    check_stage_code(gate, root, "fde")
 
     gate.write_and_exit(root)
 

@@ -59,6 +59,20 @@ State the decision the metric serves, the metric plus its cost/capacity fit, the
 
 If any check can't be completed (no cost numbers, no segment labels available), mark it: `# eds: deferred — <reason>` and say what's now unverified because of the gap.
 
+## Emit the contract
+
+The metric and split decided here are not just prose — write them to a machine-readable
+contract so every downstream stage (baseline, FDE, MDE) reads the same value instead of
+re-deriving it:
+
+    python skills/mde/scripts/validation_contract.py create <data.csv> \
+        --target <col> [--time-col <col>] [--entity-col <col>]
+
+The contract reads `.eds/BRIEF.md`'s primary metric automatically. Present the resulting
+contract (metric, split strategy, seed, hash) for user sign-off — this is the `user-signoff`
+gate on this stage. Once locked, MDE Step 1 *verifies* this contract rather than creating
+a new one; a changed contract invalidates all prior experiments.
+
 ## Handoff contract
 
 On completing this stage: (1) mark the Plan entry for this stage `done` with the gate-record reference, (2) read the Plan in `.eds/BRIEF.md`, (3) **state the next pending stage and proceed into it** — unless that stage carries a `user-signoff` gate, in which case present the decision and stop. Never end a turn with a generic "what next?" while the Plan has a pending ungated stage.

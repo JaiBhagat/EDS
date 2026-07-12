@@ -29,6 +29,8 @@ Before any model, is there a rule that plausibly captures most of the signal? A 
 
 ### Rung 6 — standard baseline model
 
+The metric comes from the contract or the Brief — never pass `--metric` by hand unless deliberately overriding, and if you do, say why in the output.
+
 Run `skills/baseline-first/scripts/baselines.py <path.csv> --target <col> --split-date-col <col-if-time-based> [--split-frac 0.2]` — it fits and reports a small fixed set of standard baselines appropriate to the task (classification: majority-class, logistic regression; regression: mean-predictor, last-value if a natural ordering/time column exists; a default-hyperparameter GBM in both cases as the "still-simple-but-a-real-model" upper baseline). It respects a time-based split if a date column is given (never a random split when time plausibly matters — see `leakage-check`).
 
 ## Declaring the bar
@@ -50,5 +52,13 @@ Whichever of the above scores best becomes *the bar*. State it explicitly, in th
 If no heuristic was plausible, say why in one line rather than omitting the row silently — "none plausible" is itself information (it means the problem likely needs real modeling, which is worth stating up front).
 
 ## Handoff contract
+
+Before marking the Plan entry `done`, record the code this stage actually ran:
+
+    python scripts/lib/stage_code.py record --stage baseline --cells-json '<...>'
+
+Record the *real* code — the pandas/sklearn that produced the numbers in the gate record,
+not a paraphrase. `notebook-assembly` assembles the final notebook from these records; a
+stage that doesn't record its code produces an empty cell in the deliverable notebook.
 
 On completing this stage: (1) mark the Plan entry for this stage `done` with the gate-record reference, (2) read the Plan in `.eds/BRIEF.md`, (3) **state the next pending stage and proceed into it** — unless that stage carries a `user-signoff` gate, in which case present the decision and stop. Never end a turn with a generic "what next?" while the Plan has a pending ungated stage.
