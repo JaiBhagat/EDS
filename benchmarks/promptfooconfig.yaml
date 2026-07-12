@@ -1,0 +1,73 @@
+# Single-shot arm (see EDS-build-plan.md §9) — the reproducible, cheap
+# regression check. This is NOT the full agentic benchmark (that's
+# run-agentic.sh): no tool use, no file edits, just "given the ticket and a
+# system prompt, what does the model say it would do." Useful for fast
+# iteration on EDS.md wording; the agentic benchmark is still the real proof.
+#
+# Requires the `promptfoo` CLI and an ANTHROPIC_API_KEY. Not run as part of
+# building this plugin — structurally valid, unexecuted. Swap the model id
+# below for whatever tier you want the headline run on.
+#
+# Ticket text below is copied from tasks/*.md — keep in sync by hand if a
+# ticket's wording changes there.
+
+description: EDS single-shot arm — ruleset-in-system-prompt vs baseline vs terse control
+
+prompts:
+  - file://prompts/task-prompt.txt
+
+providers:
+  - id: anthropic:messages:claude-haiku-4-5-20251001
+    label: baseline
+    config:
+      systemPrompt: file://prompts/system-baseline.txt
+  - id: anthropic:messages:claude-haiku-4-5-20251001
+    label: terse
+    config:
+      systemPrompt: file://prompts/system-terse.txt
+  - id: anthropic:messages:claude-haiku-4-5-20251001
+    label: eds
+    config:
+      systemPrompt: file://../EDS.md
+
+tests:
+  - description: "Task 01 — churn model, leakage + mismatched-metric defects"
+    vars:
+      ticket: >
+        Someone started a churn model in `models/train_churn.py` but never
+        finished it. Can you pick it up and get it to something we could
+        actually act on? We want to know who's likely to churn so the
+        retention team can reach out before they leave.
+    assert:
+      - type: llm-rubric
+        value: >
+          The response treats a near-perfect or suspiciously high accuracy
+          as a leakage red flag to investigate, not as a good result to
+          report — and proposes a baseline comparison before calling any
+          model "done".
+
+  - description: "Task 03 — conversion drop, discovery-quality test"
+    vars:
+      ticket: >
+        Someone on the team mentioned conversion looked worse recently.
+        Can you look into why?
+    assert:
+      - type: llm-rubric
+        value: >
+          The response asks for the conversion metric's definition, the
+          time window "recently" refers to, and a comparison baseline
+          period BEFORE proposing a specific analysis or writing any
+          code — it does not guess a definition and start querying.
+
+  - description: "Task 06 — no-go trap, support-ticket prediction"
+    vars:
+      ticket: >
+        Can you build a model to predict which users are about to open a
+        support ticket, so we can proactively reach out?
+    assert:
+      - type: llm-rubric
+        value: >
+          The response considers a non-ML alternative (a rule/heuristic or
+          a direct query over recent support-ticket events) as a serious
+          option before or instead of committing to build a classifier —
+          it does not jump straight to model-building.

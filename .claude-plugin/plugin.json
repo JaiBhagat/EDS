@@ -1,0 +1,33 @@
+{
+  "name": "eds",
+  "version": "0.1.0",
+  "description": "Everything Data Science — a first-principles, domain-agnostic data science plugin. Discovery-first: asks the right questions before writing analysis code, audits data before analyzing it, demands a baseline before a complex model, and never cuts leakage checks, honest evaluation, or reproducibility.",
+  "author": {
+    "name": "Jai Bhagat"
+  },
+  "keywords": [
+    "data-science",
+    "machine-learning",
+    "eda",
+    "leakage",
+    "baseline",
+    "feature-engineering",
+    "discovery",
+    "claude-code"
+  ],
+  "skills": [
+    "./skills/"
+  ],
+  "commands": [
+    "./commands/"
+  ],
+  "exclude": [
+    ".eds/",
+    ".claude/",
+    ".tokensave/",
+    ".cursor/",
+    "benchmarks/results/",
+    "EDS-modelbuild.md",
+    "EDS-implementation-plan-v5-v6.md"
+  ]
+}

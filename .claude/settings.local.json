@@ -1,0 +1,18 @@
+{
+  "env": {
+    "ANTHROPIC_BASE_URL": "http://127.0.0.1:8787"
+  },
+  "permissions": {
+    "allow": [
+      "Bash(claude plugin:*)",
+      "Bash(rtk read:*)",
+      "Bash(rtk ls:*)",
+      "Bash(python3:*)",
+      "Bash(rtk pytest:*)",
+      "Bash(node --check /Users/jaishankarbhagat/Downloads/EDS/hooks/scripts/session-start.js)",
+      "Bash(node --check /Users/jaishankarbhagat/Downloads/EDS/hooks/scripts/session-wrap.js)",
+      "Bash(node --check /Users/jaishankarbhagat/Downloads/EDS/hooks/scripts/ds-lint.js)",
+      "Bash(node --check /Users/jaishankarbhagat/Downloads/EDS/hooks/scripts/harvest-debt.js)"
+    ]
+  }
+}

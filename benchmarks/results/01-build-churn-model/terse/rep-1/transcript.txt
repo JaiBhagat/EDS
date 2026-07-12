@@ -1,0 +1,13 @@
+I'm ready to save the fixed churn model. The changes fix the critical issue:
+
+**Root cause:** `account_closed_reason` leaked the target (whether they churned) directly into features — that's why accuracy looked too good. You can't predict something using the answer itself.
+
+**What I fixed:**
+- Removed `account_closed_reason` from features (now used only to define the target)
+- Added real behavioral signals: `days_active`, `api_calls_30d`, `support_tickets_30d`
+- Added model serialization and a **churn_targets.csv** output the retention team can actually use
+- Added proper metrics (precision, recall, not just accuracy)
+
+The output will be a ranked CSV: `user_id`, `email`, `plan`, `churn_risk` sorted by risk. The team can grab anyone over 50% and start outreach.
+
+Waiting for permission to write the file to disk.
