@@ -2,6 +2,14 @@
 
 A first-principles, domain-agnostic data science plugin for Claude Code. Six axioms, a cost-weighted ladder, and a never-cut list govern every skill: analysis serves a decision, the data is guilty until proven innocent, the baseline is the burden of proof, time flows one way, if it can't be reproduced it didn't happen, models exist to improve operational decisions not predictive metrics.
 
+## Requirements
+
+```bash
+pip install -r requirements.txt
+```
+
+Tested on Python 3.11–3.12 with pandas 2.2.x and 3.0.x.
+
 ## Install
 
 ```bash
@@ -120,7 +128,7 @@ Available: `time-series`, `causal-inference`, `credit-risk`, `marketing-analytic
 
 ```
 .claude-plugin/plugin.json    # plugin manifest
-EDS.md                        # always-on ruleset (68 lines)
+EDS.md                        # always-on ruleset (103 lines)
 skills/
   eds-core/                   # ladder + axioms + delegation map
   discovery/                  # 7-stage Discovery Loop + 6 probes
@@ -138,6 +146,9 @@ skills/
   model-monitoring/           # PSI drift + operational decay
   ds-reporting/               # decision-first report structure
   notebook-hygiene/           # notebook → script maturity ladder
+  explainability/             # feature importance + SHAP explanations
+  model-handoff/              # production readiness checklist
+  notebook-assembly/          # notebook → deliverable construction
 commands/                     # thin shims: /discover, /brief, /eds-review, /eds-audit, etc.
 agents/                       # data-auditor, leakage-hunter, eval-designer, stats-skeptic,
                               # ds-code-reviewer, repro-checker, feature-scientist, model-scientist
@@ -154,7 +165,7 @@ scripts/
   eds_init.py                 # full session init (env + manifest + state reconciliation)
   eds_audit.py                # 5-subsystem harness auditor
   activity_log.py             # append-only event log utility
-tests/                        # 82 tests across 6 files
+tests/                        # 110 tests across 9 files
 benchmarks/                   # 6 tasks, ecommerce fixture with planted defects
 rules/common/                 # rigor, reproducibility, communication
 skills-packs/                 # optional domain + method packs
@@ -179,6 +190,17 @@ When EDS works on a data project, it creates `.eds/` in the project root:
 ```
 
 This directory belongs to the project, not the plugin. Commit it to version control.
+
+## Not in scope (v0.1)
+
+EDS covers supervised prediction, classification, regression, and structured analytics end-to-end. The following are deliberate omissions, not oversights:
+
+- Deep learning / neural architecture search
+- NLP / LLM evaluation (BLEU, perplexity, etc.)
+- Unsupervised learning / segmentation
+- Recommender systems
+- Data ingestion / ETL orchestration
+- Fairness / adverse-action auditing (tracked as deferred — highest-priority gap for v0.2)
 
 ## Contributing
 

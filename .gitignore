@@ -2,6 +2,9 @@
 .claude/
 .tokensave/
 
+# EDS local state (project-level, not test fixtures)
+/.eds/
+
 # Python
 __pycache__/
 *.py[cod]

@@ -197,7 +197,7 @@ def stage_7_stability(df, target, candidates, time_col, n_slices=3, max_score_dr
     fixed amount regardless of actual magnitude change, so magnitude is the
     signal that actually catches a feature whose importance decays."""
     df_sorted = df.sort_values(time_col).reset_index(drop=True)
-    slices = np.array_split(df_sorted, n_slices)
+    slices = [df_sorted.iloc[idx] for idx in np.array_split(np.arange(len(df_sorted)), n_slices)]
     per_slice_scores = [stage_4_univariate_signal(sl, target, candidates) for sl in slices if len(sl) >= 5]
     if len(per_slice_scores) < 2:
         return list(candidates), []  # not enough slices to judge — pass through, don't guess

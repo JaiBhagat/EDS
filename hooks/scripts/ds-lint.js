@@ -83,6 +83,10 @@ function checkTimeShuffle(lines, fullText) {
     if (/train_test_split\(/.test(line) && !/shuffle\s*=\s*False/.test(line)) {
       findings.push({ line: idx + 1, message: 'train_test_split here defaults to shuffle=True (or sets it explicitly) in a file with time/date signals — a random split on time-indexed data leaks future into past' });
     }
+    // KFold(shuffle=True) on time data is equally wrong — folds mix future and past
+    if (/KFold\(/.test(line) && /shuffle\s*=\s*True/.test(line)) {
+      findings.push({ line: idx + 1, message: 'KFold(shuffle=True) in a file with time/date signals — shuffled folds mix future and past, use TimeSeriesSplit or a time-based fold instead' });
+    }
   });
   return findings;
 }
@@ -112,12 +116,16 @@ function checkSelectStar(lines, isSql) {
 }
 
 // check 5: merge/join with no nearby row-count assertion.
+// P1.5: strip comments before testing the window, and require an assertion
+// *statement* (not just the word "assert" appearing in a comment).
 function checkJoinNoAssert(lines) {
   const findings = [];
   lines.forEach((line, idx) => {
     if (/\.merge\(|pd\.merge\(|\bJOIN\b/i.test(line)) {
-      const window = lines.slice(idx, idx + 6).join('\n');
-      if (!/(assert|\.shape|len\(|COUNT\()/i.test(window)) {
+      const windowLines = lines.slice(idx, idx + 6);
+      // Strip inline comments so "# unasserted" doesn't satisfy the check
+      const executableWindow = windowLines.map((l) => l.replace(/#.*$/, '')).join('\n');
+      if (!/(^\s*assert\b|\.shape|len\(|COUNT\()/im.test(executableWindow)) {
         findings.push({ line: idx + 1, message: 'join here has no row-count assertion/shape check in the next few lines — a fan-out join changes grain silently' });
       }
     }
@@ -187,11 +195,14 @@ const CHECKS = [
   { id: 'eval-on-train', run: (lines) => checkEvalOnTrain(lines), mapsTo: 'never-cut 3 (honest evaluation)' },
 ];
 
-function lintCell(label, text, isSql) {
+function lintCell(label, text, isSql, fullFileText) {
   const lines = text.split(/\r?\n/);
+  // For cross-cell checks (e.g. time-shuffle needs datetime hints from any cell),
+  // pass the full file text rather than just this cell's text.
+  const contextText = fullFileText || text;
   const out = [];
   for (const check of CHECKS) {
-    for (const f of check.run(lines, text, isSql)) {
+    for (const f of check.run(lines, contextText, isSql)) {
       out.push({ id: check.id, mapsTo: check.mapsTo, ref: lineRef(label, f.line), message: f.message });
     }
   }
@@ -230,18 +241,27 @@ function checkStageWithoutGate(filePath) {
 }
 
 // H4 — scope-guard: warn when writes fall outside current stage's expected surface.
-// Patterns match against the FILENAME component (not the full path) to avoid false
-// positives on innocent paths like "data_model.py" or "training_data.csv".
-const STAGE_SURFACE_MAP = {
-  'discovery': [/BRIEF\.md/, /\.eds\//, /probes?\//],
-  'data-audit': [/\.eds\/data-manifest/, /\baudit/i, /\.eds\/verification\//],
-  'eda': [/\beda[_./]/i, /\bexplor/i, /\.ipynb$/, /\bplots?\//i, /\bfigures?\//i],
-  'fde': [/\bfeature[_s]/i, /\.eds\/features\//, /\bfunnel/i, /\bcatalog/i],
-  'baseline': [/\bbaseline/i, /\.eds\/models\//, /\bbaselines\.py/],
-  'model': [/\.eds\/models\//, /\btrain_\w+\.py/i, /\bexperiment/i, /\bmodel_/i],
-  'decision-optimization': [/\bthreshold/i, /\bdecision_opt/i, /\bcutoff/i, /operating.?point/i],
-  'report': [/\breport/i, /\bdeliverable/i, /\bsummary/i, /\bfindings/i],
-};
+// Surface patterns loaded from the canonical stages.json (single source of truth).
+// Patterns match against the relative path to avoid false positives.
+function loadStageSurfaceMap() {
+  try {
+    const stagesPath = path.join(__dirname, '..', '..', 'scripts', 'lib', 'stages.json');
+    const stages = JSON.parse(fs.readFileSync(stagesPath, 'utf8')).stages;
+    const map = {};
+    for (const s of stages) {
+      map[s.id] = s.surface.map((pat) => {
+        // Convert glob-like surface hints to regex
+        const escaped = pat.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\\\\\\*/g, '.*');
+        return new RegExp(escaped, 'i');
+      });
+    }
+    return map;
+  } catch (e) {
+    // Fallback: empty map — scope guard will emit unknown-stage for everything
+    return {};
+  }
+}
+const STAGE_SURFACE_MAP = loadStageSurfaceMap();
 
 function getCurrentStage(projectRoot) {
   try {
@@ -285,7 +305,15 @@ function checkScopeGuard(filePath, projectRoot) {
   if (!currentStage) return findings;
 
   const patterns = STAGE_SURFACE_MAP[currentStage];
-  if (!patterns) return findings;
+  if (!patterns) {
+    findings.push({
+      id: 'unknown-stage',
+      mapsTo: 'H4 (scope guard — fail closed)',
+      ref: currentStage,
+      message: `unknown stage "${currentStage}" — not in stages.json; scope guard cannot run`,
+    });
+    return findings;
+  }
 
   const relPath = path.relative(projectRoot, filePath);
   const matchesSurface = patterns.some((re) => re.test(relPath));
@@ -339,8 +367,11 @@ function main() {
   if (isCodeFile) {
     const isSql = filePath.endsWith('.sql');
     const cells = extractSource(filePath);
+    // For notebooks, build the full concatenated source so cross-cell checks
+    // (e.g. time-shuffle detecting datetime hints in cell 1 while KFold is in cell 2) work.
+    const fullFileText = cells.map((c) => c.text).join('\n');
     for (const cell of cells) {
-      findings = findings.concat(lintCell(cell.label, cell.text, isSql));
+      findings = findings.concat(lintCell(cell.label, cell.text, isSql, fullFileText));
     }
 
     // Use projectRoot for catalog lookup instead of a second directory walk

@@ -1,0 +1,16 @@
+{
+  "stages": [
+    {"id": "discovery",             "skill": "discovery",             "gate": "gate_discovery.py",             "surface": ["BRIEF.md", ".eds/"]},
+    {"id": "data-audit",            "skill": "data-audit",            "gate": "gate_data_audit.py",            "surface": [".eds/data-manifest", "audit"]},
+    {"id": "eda",                   "skill": "eda-workflow",          "gate": "gate_eda.py",                   "surface": ["eda", "*.ipynb", "plots/"]},
+    {"id": "label-design",          "skill": "label-design",          "gate": "user-signoff",                  "surface": ["label", "target"]},
+    {"id": "evaluation-contract",   "skill": "evaluation-design",     "gate": "user-signoff",                  "surface": [".eds/models/validation_contract.json"]},
+    {"id": "fde",                   "skill": "fde",                   "gate": "gate_fde.py",                   "surface": [".eds/features/", "feature", "funnel"]},
+    {"id": "baseline",              "skill": "baseline-first",        "gate": "gate_model.py",                 "surface": ["baseline", ".eds/models/"]},
+    {"id": "model",                 "skill": "mde",                   "gate": "gate_model.py",                 "surface": [".eds/models/", "train_", "experiment"]},
+    {"id": "calibration",           "skill": "mde",                   "gate": "gate_model.py",                 "surface": ["calibrat", ".eds/models/"]},
+    {"id": "decision-optimization", "skill": "decision-optimization", "gate": "gate_decision_optimization.py", "surface": ["threshold", "cutoff"]},
+    {"id": "report",                "skill": "ds-reporting",          "gate": "gate_report.py",                "surface": ["report", "findings"]},
+    {"id": "monitoring-handoff",    "skill": "model-monitoring",      "gate": "gate_model.py",                 "surface": ["monitor", "drift", "psi"]}
+  ]
+}

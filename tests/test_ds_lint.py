@@ -61,6 +61,55 @@ class TestCodeLint:
         assert stderr == ""
 
 
+class TestJoinNoAssert:
+    def test_comment_assert_does_not_satisfy(self, tmp_path):
+        """P1.5: 'assert' inside a comment should NOT satisfy the join check."""
+        bait = tmp_path / "bait.py"
+        bait.write_text(
+            "import pandas as pd\n"
+            "df = left.merge(right, on='id')\n"
+            "# unasserted join — this comment mentions assert but isn't one\n"
+            "print(df.head())\n"
+        )
+        _, stderr, _ = run_lint(str(bait))
+        assert "join" in stderr.lower()
+
+    def test_real_assert_satisfies(self, tmp_path):
+        bait = tmp_path / "bait.py"
+        bait.write_text(
+            "import pandas as pd\n"
+            "df = left.merge(right, on='id')\n"
+            "assert len(df) == len(left)\n"
+        )
+        _, stderr, _ = run_lint(str(bait))
+        assert "join" not in stderr.lower()
+
+
+class TestStageDrift:
+    def test_stages_json_matches_gate_scripts(self):
+        """stages.json gate entries must correspond to actual gate scripts or 'user-signoff'."""
+        stages_path = os.path.join(os.path.dirname(__file__), "..", "scripts", "lib", "stages.json")
+        gates_dir = os.path.join(os.path.dirname(__file__), "..", "scripts", "gates")
+        with open(stages_path) as f:
+            import json as _json
+            stages = _json.load(f)["stages"]
+
+        for s in stages:
+            gate = s["gate"]
+            if gate == "user-signoff":
+                continue
+            gate_path = os.path.join(gates_dir, gate)
+            assert os.path.exists(gate_path), f"stages.json references gate '{gate}' but {gate_path} does not exist"
+
+    def test_stages_json_ids_unique(self):
+        stages_path = os.path.join(os.path.dirname(__file__), "..", "scripts", "lib", "stages.json")
+        with open(stages_path) as f:
+            import json as _json
+            stages = _json.load(f)["stages"]
+        ids = [s["id"] for s in stages]
+        assert len(ids) == len(set(ids)), f"duplicate stage IDs: {[x for x in ids if ids.count(x) > 1]}"
+
+
 class TestH3StageWithoutGate:
     def test_catches_done_without_gate_ref(self, tmp_path):
         eds_dir = tmp_path / ".eds"

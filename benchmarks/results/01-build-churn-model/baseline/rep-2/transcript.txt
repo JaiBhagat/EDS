@@ -1,9 +1,0 @@
-I've identified the problem and have the fix ready. The current code has **data leakage**: it uses `account_closed_reason` (which only exists after someone churns) to predict churn—that's why accuracy looks too good.
-
-Here's what the fix does:
-- **Uses only pre-churn signals**: account age, region, plan (available *before* someone leaves)
-- **Trains on churned users**, predicts on active ones (so retention can act)
-- **Outputs a ranked list** of top 20 at-risk users with risk scores to `/tmp/churn_targets.csv`
-- **Shows feature importance** so retention knows what matters
-
-Once you approve the edit, the model will be actionable for your retention team.

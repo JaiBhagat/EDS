@@ -1,0 +1,21 @@
+name: ci
+on: [push, pull_request]
+jobs:
+  rules:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: node scripts/check-rule-copies.js
+  tests:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.11", "3.12"]
+        pandas: ["2.2.*", "3.0.*"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "${{ matrix.python }}"
+      - run: pip install -r requirements.txt "pandas==${{ matrix.pandas }}"
+      - run: pytest -q

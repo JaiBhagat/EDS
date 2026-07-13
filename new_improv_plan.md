@@ -1,113 +1,263 @@
-# EDS Plugin — Improvement Plan
-**Basis:** the Working Review (previous report) + a second pass over the repo source (`baselines.py`, `time_coverage.py`, hooks, gates, `ds-reporting`, fde scripts).
-**Organizing principle:** your end goal is a *solid pre-production notebook* per project — data audit → EDA (confidence-holding) → FE → model → calibration → threshold → **saved model** → **assembled notebook** — that later converts mechanically to modules. Every item below is prioritized against that goal.
+# EDS — P4 Remediation Plan
+### Closing the evaluation gaps and lifting every dimension score
+
+**Baseline:** `82fd92c` (P3 close-out)
+**Scope:** the seven defects in the evaluation report, re-cut into four executable phases.
+**Written to be handed to Claude Code and executed top-to-bottom.** Every task has a file path and a testable exit criterion. Nothing here is speculative work.
 
 ---
 
-## P0 — Correctness fixes (do before the next project run)
+## 0. Score targets
 
-These are the bugs that produce silently wrong or mislabeled numbers. ~1 day of work total.
+| Dimension | Now | Target | Closed by |
+|---|---|---|---|
+| Architecture & design | 9 | 9 | — (no change needed) |
+| Ponytail ideology fidelity | 7 | **9** | P2 + P3 |
+| ECC structural fidelity | 9 | 9 | — |
+| Implementation correctness | 7 | **9** | P0 + P1 |
+| Engineering hygiene | 4 | **9** | P0 |
+| Evidence / proof of claim | 3 | **8** | P2 |
+| DS lifecycle coverage | 8 | **9** | P4 (optional) |
 
-### P0.1 Metric plumbing: one metric, declared once, used everywhere
-The single biggest source of friction in the fraud run. Three scripts each handle metrics independently and disagree:
+The two that move the most — hygiene and evidence — are also the two cheapest. That is the whole shape of this plan.
 
-| Script | Current behavior | Fix |
+---
+
+## 1. The benchmarking decision (settled, so the plan can be written)
+
+The `benchmarks/` directory is **not model benchmarking**. It never was. Two different things share the word:
+
+| | Model benchmarking | Plugin benchmarking (`benchmarks/`) |
 |---|---|---|
-| `mde/scripts/validation_contract.py` | `--metric auto` → silently `roc_auc` for classification; never reads the Brief | On `create`, parse `.eds/BRIEF.md` Stage 5 "Primary metric" and use it; if a Brief exists with an explicit metric and the user passes nothing, **that metric wins**. Error loudly (don't fall back) if the Brief metric doesn't map to a known scorer. |
-| `baseline-first/scripts/baselines.py` | **No `--metric` flag at all**; `roc_auc_score` hardcoded; LR fitted without `class_weight` | Add `--metric {roc_auc,average_precision,f1,neg_rmse,...}` mapped to sklearn scorers, defaulting to the contract/Brief value if `.eds/models/validation_contract.json` exists. Add `--class-weight balanced` support. Report the trivial baseline in the same metric (all-zeros AUPRC = base rate), not "AUC=0.5". |
-| `mde/scripts/experiment_log.py` / `champion_selection.py` | Log whatever `metric_name` is passed; contract mislabel propagates | Once P0.1a lands this fixes itself, but add a validation: `log` should refuse an entry whose `metric_name` ≠ contract metric (or require an explicit `--override-metric` with a reason string that gets stored). |
+| Question | "Is 0.71 AUC good for *this* business problem?" | "Does the agent notice `account_closed_reason` is a leak?" |
+| Needs | Stakeholders, prior model, business bar | A synthetic CSV you generated at seed 7 |
+| Automatable | **No** — and EDS correctly doesn't try. It's the Brief's `baseline bar` field, supplied by the user, enforced by `evaluation-design`. Already solved. | **Yes** — the answer key is five defects you planted yourself. |
+| Verdict | Out of scope, by design, correctly | **In scope, and mandatory** |
 
-Also make the default imbalance-aware: when creating a contract for classification, read the target's positive rate (the target-profile probe already computes it); below ~2% positives, default to `average_precision` instead of `roc_auc`, and say why in `metric_reason`.
+So the objection is right about model benchmarking and doesn't apply to the thing that's broken. But the *ambition* of the current benchmark harness (3 arms × 6 tasks × n reps, token/cost/LOC metrics, LLM-judged ladder adherence) is genuinely over-built and genuinely expensive. That is what gets cut.
 
-### P0.2 `calibration.py fix` — remove the self-split footgun
-Current: splits *whatever file it's handed* 70/30 to fit and score the calibrator → fit isotonic on ~52 fraud rows of the test set in your run, collapsing AUPRC 0.81→0.59.
+**The split that resolves it:**
 
-New interface (breaking change, intentionally):
-```
-python calibration.py fix \
-    --fit-path cal_predictions.csv   # predictions on a held-out CAL split (from train side)
-    --apply-path test_predictions.csv \
-    --y-true <col> --y-prob <col> --method platt|isotonic
-```
-Plus two guardrails inside the script:
-- Refuse isotonic when the fit set has < ~200 positives (isotonic needs density; recommend Platt below that and say so).
-- After applying, recompute AUPRC on the apply set and **warn loudly if rank-order changed** (AUPRC before vs after should be ≈ equal for monotone calibration; a drop means something is wrong). This single assertion would have caught the bug automatically in your run.
+- **Proof of function** — *does EDS's machinery actually catch the planted defects?* Four of the five defects can be checked **with no LLM at all**: run `split_overlap.py` on the fixture splits, run the grain check on `orders.csv`, run `ds-lint` on `model_dev.ipynb`, run the leakage scan on `features.csv`. Deterministic, free, fast, runs in CI on every push. **This is not a benchmark — it is an integration test wearing a benchmark's clothes.** Mandatory. Phase P2a.
+- **Proof of value** — *does an agent with EDS beat an agent without it?* Needs a real LLM, costs money, is noisy across reps. **Descope hard:** one headline run, 6 tasks × 2 arms (eds / no-eds) × 2 reps, graded by hand against `_answer-key.md`, one table in the README, done once, never in CI. Optional. Phase P2b.
 
-Correspondingly, the MDE SKILL.md workflow must instruct carving a calibration slice out of *train* (e.g., last 10–15% of train by time for temporal splits) at split time — right now no stage ever creates a cal split, which is why the tool got pointed at test.
-
-### P0.3 `time_coverage.py` — handle relative/numeric time columns
-Current: `pd.to_datetime` on the fraud data's `Time` (seconds elapsed) parses as nanoseconds-since-epoch → "coverage: 1970-01-01 → 1970-01-01 (0 days)", which is noise. Fix: detect numeric columns whose plausible datetime parse collapses to a single 1970 date; in that case treat the column as **elapsed time** — report span in seconds/hours, monotonicity, and per-bin volume (the useful analysis the assistant had to hand-roll). Add `--unit s|ms|epoch|auto`.
+**Non-negotiable either way:** delete `benchmarks/results/`. Twelve zero-byte `status.txt` and `diff.patch` files that look like a run happened are worse than an empty directory — a reader who opens them concludes the author manufactures evidence. Replace with a `results/README.md` stating exactly what has and hasn't been run. Honest absence beats fake presence, and it's the ponytail move.
 
 ---
 
-## P1 — Close the loop to your stated end-state (the missing features)
+## P0 — Stop the bleeding (½ day)
+> *Hygiene 4 → 9, Correctness 7 → 8. Do this first; it's an afternoon and it removes every embarrassing thing in the repo.*
 
-These aren't bugs — they're capabilities the plugin *doesn't have* that your goal requires. This is where most of the new value is.
+### P0.1 — Fix the live crash
+**File:** `skills/fde/scripts/evaluators/funnel.py:200`
 
-### P1.1 NEW SKILL: `model-handoff` (save the model, properly)
-Nothing in the pipeline serializes a model. `champion.json` stores metadata only; the actual fitted LR, the Platt calibrator, the feature list, and the chosen threshold from your fraud run live nowhere — rerun the notebook or lose them. For "pre-production," the deliverable must be a loadable bundle:
+```python
+# before — np.array_split on a DataFrame returns object ndarrays on numpy 2.x
+slices = np.array_split(df_sorted, n_slices)
 
+# after — split the index, slice with .iloc
+slices = [df_sorted.iloc[idx] for idx in np.array_split(np.arange(len(df_sorted)), n_slices)]
 ```
-.eds/models/bundle/
-  model.joblib            # fitted estimator
-  calibrator.joblib       # fitted calibrator (or None)
-  feature_spec.json       # ordered feature list + dtypes + engineered-feature formulas
-  threshold.json          # operating threshold(s) + tier map + cost assumptions
-  metrics.json            # holdout metrics + bootstrap CI (see P1.3)
-  inference.py            # generated: load bundle, score a dataframe end-to-end
-  MANIFEST.json           # hashes of all of the above + contract hash + seed + package versions
+**Exit:** `pytest tests/test_funnel.py` → 15/15 pass on pandas 3.x.
+
+### P0.2 — Pin the environment
+**New file:** `requirements.txt` (or `pyproject.toml` — pick one, don't ship both)
 ```
-The generated `inference.py` (raw df → engineered features → calibrated score → tier) is what makes later modularization mechanical — the feature-engineering logic gets written down *once, as code*, instead of living scattered across notebook cells. Gate: `MANIFEST` hash recorded in the Brief's Plan row.
+pandas>=2.0,<4.0
+numpy>=1.24,<3.0
+scikit-learn>=1.3
+pytest>=8.0
+```
+Then add a `## Requirements` line to `README.md`.
+**Exit:** a fresh venv from `requirements.txt` runs the full suite green.
+**Why it's non-optional:** never-cut item 5 says *"environment pinned."* The plugin currently doesn't pin its own. This is the single most quotable inconsistency in the repo.
 
-### P1.2 NEW SKILL: `notebook-assembly` (generate, don't freehand, the final notebook)
-In your run the assistant wrote `fraud_detection.ipynb` from memory of the session — it happened to be good, but nothing guarantees it matches what was actually executed, and nothing regenerates it if a stage is redone. Build an assembler that walks the Plan table + `.eds/` artifacts (gate records, feature journal, experiment log, champion, calibration report, threshold analysis) and emits the notebook with one cell per completed Plan stage, each cell's markdown header quoting its gate record. Then automatically run `notebook-hygiene`'s `maturity_check.py` on the output and fail assembly if rung-2 blockers exist (hardcoded paths, no seed cell). Result: notebook stage ↔ Plan row ↔ future module, guaranteed in lockstep — exactly your "solid notebook now, modular later" path.
+### P0.3 — CI actually runs the tests
+**File:** `.github/workflows/ci.yml` (rename/extend `check-rule-copies.yml`)
+```yaml
+name: ci
+on: [push, pull_request]
+jobs:
+  rules:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: node scripts/check-rule-copies.js
+  tests:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.11", "3.12"]
+        pandas: ["2.2.*", "3.0.*"]      # the matrix that would have caught P0.1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "${{ matrix.python }}" }
+      - run: pip install -r requirements.txt "pandas==${{ matrix.pandas }}"
+      - run: pytest -q
+```
+**Exit:** a PR with a deliberately broken test goes red.
 
-### P1.3 NEW SCRIPT: `bootstrap_ci.py` (shared utility, wired into ds-reporting)
-The fraud report asserted "plausibly 0.75–0.87 AUPRC" without computing it — on 75 positives that range is the difference between a credible report and a hand-wave. One small script (resample the holdout with replacement, recompute the primary metric, report the 90% interval; stratified resampling so every draw has positives), used in three places: baseline bar (is LR really above the heuristic?), champion vs. bar (did features *really* add +0.053?), and the final report's headline number. Make `ds-reporting`'s SKILL.md require a computed interval for any metric whose positive count < ~500. Cheap, and it's the main thing standing between "report" and "report that holds confidence."
-
-### P1.4 EDA report artifact (make EDA reviewable, not just chat-transient)
-Right now EDA findings live only in the chat transcript and one Plan-row summary. For your "EDA report that holds confidence and improves explainability" requirement, `eda-workflow` should end by writing `.eds/eda/EDA.md` + saved figures:
-- The question→answer→decision list (already produced — just persist it)
-- Class-conditional overlay plots (violin/box) for the top-signal features — the visual a reviewer anchors on; medians in text don't do this
-- A correlation heatmap of the feature set (residual structure among "independent" features affects linear-model coefficient stability — relevant since LR coefficients are your explainability story)
-- A one-line "so the model should work because…" synthesis linking EDA signal to the modeling choice
-
-`notebook-assembly` (P1.2) then embeds these figures rather than regenerating plots ad hoc.
-
-### P1.5 Preprocessing as a Pipeline object, not loose cells
-The fraud notebook computes engineered features with inline pandas in multiple cells. For pre-production, the FDE stage's *output* should include a fitted-or-fittable `sklearn.Pipeline`/`FunctionTransformer` chain (or a single `build_features(df) -> df` function written to `.eds/features.py`) that both the notebook and `inference.py` (P1.1) import. One definition, two consumers — this is the item that prevents train/serve skew when you modularize.
+### P0.4 — Untrack local state
+```bash
+git rm -r --cached .tokensave .claude .eds __pycache__ \
+  $(git ls-files | grep -E '\.pyc$|\.DS_Store$') 
+git commit -m "chore: untrack local state and build artifacts"
+```
+Also add `new_improv_plan.md` to `plugin.json`'s `exclude` list (or move working plans to `docs/plans/`).
+**Exit:** `git ls-files | grep -E 'tokensave|DS_Store|\.pyc|settings.local'` returns nothing.
+**Why it matters:** the repo currently ships a 1.3 MB SQLite code index and your home directory path to anyone who clones it.
 
 ---
 
-## P2 — Harden the workflow (process + guardrails)
+## P1 — Make the harness fail closed (1–2 days)
+> *Correctness 8 → 9, Ponytail +1. A verification harness that fails open is worse than no harness — it manufactures confidence.*
 
-### P2.1 A "stay on the paved road" rule for the driving agent
-The recurring pattern in your transcript: when a plugin script didn't fit (wrong metric, broken calibration), the assistant improvised inline Python and moved on — losing the audit trail (`experiment_log.json` disagrees with the narrative). Add to `EDS.md` / `AGENTS.md`: *if a skill script can't express the Brief's requirement, the fix is to patch the script (or log an `eds:deferred` debt marker), never to silently route around it.* The hooks system (`harvest-debt.js` already exists) can collect these markers — use it.
+### P1.1 — One canonical stage list
+**New file:** `scripts/lib/stages.py` + `hooks/scripts/lib/stages.js` (or a single `stages.json` both read — preferred, single-source, same pattern as the rule text).
 
-### P2.2 Post-stage assertion gates
-`scripts/gates/` exists but gates are mostly record-keeping. Add cheap numeric assertions per stage that fail loudly:
-- post-calibration: AUPRC(before) − AUPRC(after) < ε (catches P0.2-class bugs automatically)
-- post-split: no duplicate row straddles the train/test boundary (your own audit flagged this; nothing enforces it)
-- post-FDE: selected features exist in both train and test with identical dtypes
-- post-champion: `champion.json.metric_name` == contract metric
+```json
+{
+  "stages": [
+    {"id": "discovery",              "skill": "discovery",              "gate": "gate_discovery.py",              "surface": ["BRIEF.md", ".eds/"]},
+    {"id": "data-audit",             "skill": "data-audit",             "gate": "gate_data_audit.py",             "surface": [".eds/data-manifest", "audit"]},
+    {"id": "eda",                    "skill": "eda-workflow",           "gate": "gate_eda.py",                    "surface": ["eda", "*.ipynb", "plots/"]},
+    {"id": "label-design",           "skill": "label-design",           "gate": "user-signoff",                   "surface": ["label", "target"]},
+    {"id": "evaluation-contract",    "skill": "evaluation-design",      "gate": "user-signoff",                   "surface": [".eds/models/validation_contract.json"]},
+    {"id": "fde",                    "skill": "fde",                    "gate": "gate_fde.py",                    "surface": [".eds/features/", "feature", "funnel"]},
+    {"id": "baseline",               "skill": "baseline-first",         "gate": "gate_model.py",                  "surface": ["baseline", ".eds/models/"]},
+    {"id": "model",                  "skill": "mde",                    "gate": "gate_model.py",                  "surface": [".eds/models/", "train_", "experiment"]},
+    {"id": "calibration",            "skill": "mde",                    "gate": "gate_model.py",                  "surface": ["calibrat", ".eds/models/"]},
+    {"id": "decision-optimization",  "skill": "decision-optimization",  "gate": "gate_decision_optimization.py",  "surface": ["threshold", "cutoff"]},
+    {"id": "report",                 "skill": "ds-reporting",           "gate": "gate_report.py",                 "surface": ["report", "findings"]},
+    {"id": "monitoring-handoff",     "skill": "model-monitoring",       "gate": "gate_model.py",                  "surface": ["monitor", "drift", "psi"]}
+  ]
+}
+```
+Kills three bugs at once: the schema's `audit` vs ds-lint's `data-audit` mismatch (currently → **no scope guard during the first working stage**), the four stages with no gate script, and the drift between README / brief-schema / `STAGE_SURFACE_MAP`. Stages whose gate is `user-signoff` are now *explicitly* signoff-gated rather than silently ungated.
 
-### P2.3 Fix `select_metric`'s universal ROC-AUC default (covered in P0.1) and audit the other probes for the same "reasonable default that's wrong for imbalanced data" pattern — `quick_relationships.py` (correlation vs a 0.17% target is noisy) and `funnel.py`'s stage-4 univariate ranking are the two to check.
+**Consumers to rewire:** `hooks/scripts/ds-lint.js` (`STAGE_SURFACE_MAP`), `scripts/state/plan.py`, `scripts/eds_audit.py`, `skills/discovery/references/brief-schema.md` (Plan template), `README.md`.
+
+**Exit:** a test asserts `set(stages.json) == set(STAGE_SURFACE_MAP) == set(brief-schema Plan template) == set(gates on disk ∪ {user-signoff})`. Drift becomes a CI failure, exactly like rule-text drift already is.
+
+### P1.2 — Unknown stage = fail closed
+**File:** `hooks/scripts/ds-lint.js:287`
+```js
+const patterns = STAGE_SURFACE_MAP[currentStage];
+if (!patterns) return findings;          // ← silently gives up
+```
+→ emit a finding: `unknown stage "<x>" — not in stages.json; scope guard cannot run`. An unrecognised stage is a *bug*, not a free pass.
+
+### P1.3 — Unparseable Plan = FAIL, not PASS
+**File:** `scripts/eds_audit.py`
+Currently a Plan the parser can't read reports `[PASS] done-stages-gated — no done stages yet`. Distinguish three states: **no Plan section** (fail: discovery incomplete) / **Plan present, 0 entries parsed** (fail: malformed) / **Plan parsed, 0 done** (pass).
+**Exit:** `test_observability.py` gains a case feeding a table-formatted Plan → audit returns FAIL with `plan-unparseable`.
+
+### P1.4 — Align the test fixture with the schema
+`tests/fixtures/eds_fixture/.eds/BRIEF.md` uses a markdown-table Plan; `brief-schema.md` mandates `- stage · skill · status · gate` bullets. The fixture is currently testing a format the product doesn't emit. Rewrite the fixture to the canonical format — and *keep* a table-format fixture as the **negative** case for P1.3.
+
+### P1.5 — Tighten `join-no-assert`
+**File:** `hooks/scripts/ds-lint.js:120` — the window test `/(assert|\.shape|len\(|COUNT\()/i` is satisfied by the word "un**assert**ed" in a comment. Require an assertion *statement* (`^\s*assert\b`, or `.shape` / `len(` in an executable line), and strip comments before testing the window.
+**Exit:** a test where the only "assert" is inside a `#` comment still produces the finding.
 
 ---
 
-## P3 — Nice-to-have (after the above)
+## P2 — Evidence (2 days, split into mandatory + optional)
+> *Evidence 3 → 8. This is the phase that decides whether the repo is credible to a stranger.*
 
-- **SHAP/explanation stage** as an optional post-champion skill — LR coefficients sufficed here, but the moment a tree model wins champion, your explainability story needs it.
-- **`eds:resume`** — regenerate a session's context from `.eds/` artifacts so a new session can pick up mid-lifecycle without replaying the transcript (the Brief's Plan table already carries most of this; formalize it).
-- **Benchmark the fixes**: the repo already has `benchmarks/` with promptfoo config — add the fraud dataset as a fixture and encode P0.1/P0.2 as regression tests ("contract metric matches Brief," "calibration preserves AUPRC") so these bugs can't silently return.
-- **Cost-matrix elicitation** in decision-optimization: the skill currently lets the agent assume a matrix with a comment; better to make it a structured `user-signoff` gate (like evaluation-contract) whenever no real costs exist — the threshold is the most business-consequential number in the whole pipeline.
+### P2a — Proof of function (MANDATORY, no LLM, runs in CI)
+**New file:** `tests/test_fixture_defects.py`
+
+The fixture already has five planted defects and `_answer-key.md` already states them precisely. Assert that **EDS's own machinery catches each one** — no agent, no API key, no arms, no cost:
+
+| Defect | Assertion | Component under test |
+|---|---|---|
+| 1. 216 duplicate `order_id`s | grain/dup check on `orders.csv` reports ≥1 duplicate-key violation | `data-audit` scripts |
+| 2. `account_closed_reason` leak | leakage scan on `features.csv` vs `users.churned` flags the column | `leakage-check/scripts/feature_availability_scan.py` |
+| 3. ~10% `user_id` overlap train/test | `split_overlap.py` reports non-zero entity overlap | `leakage-check/scripts/split_overlap.py` |
+| 4. `KFold(shuffle=True)` on time data | `ds-lint` on `notebooks/model_dev.ipynb` emits `time-shuffle` | `hooks/scripts/ds-lint.js` |
+| 5. Bare accuracy on 19% base rate | `validation_contract create` on the fixture proposes a non-accuracy metric, or flags accuracy-with-no-baseline | `mde/scripts/validation_contract.py` |
+
+This is the strongest possible evidence *and* the cheapest: it's deterministic, it costs nothing, it runs on every push, and it never goes stale. If any of the five stops firing, CI goes red. **This alone takes Evidence from 3 to ~7.**
+
+**Exit:** `pytest tests/test_fixture_defects.py` → 5 passed, wired into P0.3's CI job.
+
+### P2b — Proof of value (OPTIONAL, one-shot, hand-graded)
+Only if you want a headline number in the README. Descoped from the original ambition:
+
+- **Cut:** 3 arms → **2** (eds / no-eds; drop `terse`, it answers a question nobody asked). 6 tasks × 2 reps = 24 sessions. Drop token/cost/LOC metrics entirely; drop the promptfoo single-shot arm.
+- **Keep:** one number — **pitfall catch rate** = (defects detected or flagged) / (defects the task touches), per arm, from `_answer-key.md`.
+- **Output:** one table in `README.md`, plus `benchmarks/results/README.md` recording model id, date, and n. Run once. Never in CI.
+- **Task 06 is the one worth the money** — the no-go trap. "Does the agent build a classifier for something `events.csv` already logs directly, or does it correctly refuse?" That single row proves the ladder does something a generic agent doesn't. If you only run one task, run that one.
+
+### P2c — Delete the fake evidence (MANDATORY, 5 minutes)
+```bash
+git rm -r benchmarks/results/
+```
+Replace with `benchmarks/results/README.md`:
+> No agentic benchmark run has been completed yet. `tests/test_fixture_defects.py` provides deterministic proof that the plugin's checks catch all five planted defects. A comparative eds/no-eds run is tracked as `# eds: deferred — proof-of-value benchmark, see P2b`.
+
+Twelve 0-byte files that look like results are a credibility liability. An honest "not yet run" is not.
 
 ---
 
-## Suggested sequencing
+## P3 — Ponytail cleanup (½ day)
+> *Ponytail 7 → 9.*
 
-**Week 1 (P0):** the three correctness fixes + regression tests for each. Small diffs, big trust gain.
-**Week 2–3 (P1):** `model-handoff` and `bootstrap_ci.py` first (smallest, highest leverage), then `notebook-assembly`, then the EDA artifact + features-as-pipeline. After this, a full project run should end with: a model bundle you can load, a generated notebook that passed `maturity_check`, and a report whose headline metric carries a computed interval.
-**Ongoing (P2):** gates and the paved-road rule as you touch each stage.
+### P3.1 — Unpollute the debt ledger
+**File:** `hooks/scripts/harvest-debt.js`
+- Exclude `tests/`, `benchmarks/fixtures/`, and `**/__pycache__` from the scan (7 of ~10 current ledger entries are captured from `test_harvest_debt.py`'s own fixtures).
+- Trim capture at the end of the reason, not end-of-line — the ledger currently holds entries like `` — skipping cross-validation for speed\nprint(1)\n") ``.
+- **Exit:** a test asserting a marker inside `tests/` is *not* harvested, and a marker followed by trailing code captures only the reason. Then clear and re-harvest the ledger.
 
-**Acceptance test for the whole plan:** rerun the exact same Kaggle fraud project end-to-end. Success = zero ad hoc inline scripts needed for metrics/calibration/thresholds, `experiment_log.json` says `average_precision` everywhere, `.eds/models/bundle/` loads and scores a raw dataframe, and the notebook was generated (not freehanded) and passes rung-2 hygiene.
+**Why this matters more than it looks:** `/evolve` clusters the ledger to find recurring shortcuts. A ledger that is 70% noise means the continuous-learning loop — the ECC pattern the repo explicitly claims — is dead on arrival.
+
+### P3.2 — Seed the ledger honestly
+Everything this plan *chooses not to do* gets a marker. Deferring inside the ideology is not a cut; deferring silently is:
+```
+# eds: deferred — proof-of-value benchmark (eds vs no-eds arms), P2b, needs API budget
+# eds: deferred — fairness/adverse-action skill, P4.1
+# eds: deferred — unsupervised/segmentation lifecycle path, no Plan template exists
+# eds: deferred — serving latency/cost check in model-handoff (axiom 6 arguably demands it)
+```
+
+### P3.3 — README truth-up
+- Add the three missing skills to the architecture tree: **explainability, model-handoff, notebook-assembly**.
+- `82 tests across 6 files` → **96 across 7** (make it `pytest --collect-only -q | tail -1`, or just drop the number — a number that drifts is worse than no number).
+- `EDS.md (68 lines)` → **87**.
+- Add an explicit **"Not in scope (v0.1)"** section: deep learning, NLP/LLM eval, unsupervised, recommender, data ingestion. Declared scope reads as judgment; undeclared scope reads as an oversight.
+
+---
+
+## P4 — Coverage (optional, 1–2 days)
+> *Coverage 8 → 9. Do this when P0–P3 are green, not before.*
+
+### P4.1 — `fairness` skill into **core**, not the pack
+The biggest real gap. There is a `credit-risk` domain pack and no disparate-impact / proxy-variable / adverse-action-reason-code skill. In BFSI that is the regulator's first question, and it's your own domain — you'd feel this absence on your first real use. Minimum viable: group-wise metric parity table, proxy-variable correlation scan against protected attributes, reason-code export from the existing `explainability` skill. It slots naturally as a gate before `decision-optimization` (you cannot set a threshold you can't defend).
+
+### P4.2 — Two smaller holes, if cheap
+- **Class imbalance / sampling** — currently implicit inside MDE; deserves a named decision point (resample vs class-weight vs threshold-move).
+- **Missing-data strategy** — audit *detects* nulls; nothing owns the *decision* (MAR/MNAR, imputation choice, missingness-as-signal).
+
+---
+
+## Sequence and exit criteria
+
+| Phase | Effort | Gate to move on | Status |
+|---|---|---|---|
+| **P0** | ½ day | CI green on a 2×2 python/pandas matrix; `git ls-files` clean; funnel test passes | **DONE** |
+| **P1** | 1–2 days | One `stages.json`; drift test in CI; every guard fails closed; malformed Plan → FAIL | **DONE** |
+| **P2a** | 1 day | `test_fixture_defects.py` → 7/7, in CI. **`results/` deleted.** | **DONE** |
+| **P2b** | optional | 2-arm table in README, or a deferred marker. Either is honest; silence is not. | deferred marker placed |
+| **P3** | ½ day | Ledger clean; `/evolve` runs on real signal; README matches reality | **DONE** |
+| **P4** | optional | Fairness skill shipped in core | deferred marker placed |
+
+**Total to hit every target score except Coverage: ~3–4 days.**
+
+---
+
+## The one thing to take away
+
+Every remaining defect in EDS is a case of the plugin **not doing to itself what it demands of its users**: it insists on pinned environments and has none; it insists on verification gates and its own gates fail open; it insists that skipped work gets a marker and its marker ledger is full of test noise; it insists on honest evidence and ships twelve empty files where results should be.
+
+Fix that asymmetry and the ideology stops being something the README claims and becomes something the repo demonstrates. That is the whole plan.

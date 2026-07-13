@@ -1,5 +1,8 @@
 # Problem Brief — Fixture Project
 
+## Status
+confirmed
+
 ## Stage 5: Success metric & baseline bar
 
 | Field | Value |
@@ -9,12 +12,9 @@
 | Cost asymmetry | FN >> FP (missing a positive is 10x worse) |
 
 ## Plan
-
-| stage | status | gate |
-|---|---|---|
-| data-audit | done | gate:data-audit-20240101 |
-| eda | done | gate:eda-20240101 |
-| evaluation-design | done | gate:eval-20240101 |
-| baseline | pending | |
-| fde | pending | |
-| model | pending | |
+- data-audit · data-audit · done · gate-record: verification/data-audit-20240101.json
+- eda · eda-workflow · done · gate-record: verification/eda-20240101.json
+- evaluation-contract · evaluation-design · done · gate-record: verification/eval-20240101.json
+- baseline · baseline-first · pending · none
+- fde · fde · pending · none
+- model · mde · pending · none

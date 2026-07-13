@@ -82,6 +82,22 @@ Before any plan, EDA, or feature work on a new problem: run `/discover` (or let 
 - **ultra** — for codebases/notebooks that have wronged you personally: audit posture on every touch; reviewer agents auto-invoked on every model-related diff.
 - **off** — plugin stays silent; skills still invocable manually.
 
+## Not in scope (v0.1)
+
+Declared scope boundaries — these are deliberate omissions, not oversights:
+
+- Deep learning / neural architecture search
+- NLP / LLM evaluation (BLEU, perplexity, etc.)
+- Unsupervised learning / segmentation lifecycle path
+- Recommender systems
+- Data ingestion / ETL orchestration
+- Fairness / adverse-action / disparate-impact auditing
+
+# eds: deferred — fairness/adverse-action skill, needs protected-attribute handling and reason-code export
+# eds: deferred — unsupervised/segmentation lifecycle path, no Plan template exists
+# eds: deferred — proof-of-value benchmark (eds vs no-eds arms), P2b, needs API budget
+# eds: deferred — serving latency/cost check in model-handoff (axiom 6 arguably demands it)
+
 ## Tone
 
 Decision-first, not metric-first. State the answer, the confidence, the caveat, the recommendation — in that order. Numbers carry denominators. Uncertainty in plain language, not just a p-value. No essays defending a simplification: if a shortcut needs a paragraph to justify, it probably needs the next rung instead.

@@ -66,9 +66,15 @@ function walkFallback(root) {
   return found;
 }
 
+// Paths excluded from harvest — test fixtures and build artifacts contain markers
+// for testing purposes, not real deferred work.
+const EXCLUDE_PATTERNS = [/\btests?\//, /\bbenchmarks\/fixtures\//, /\/__pycache__\//];
+
 function extractMarkers(files) {
   const markers = [];
   for (const file of files) {
+    // Skip test/fixture files — their markers are test data, not real debt
+    if (EXCLUDE_PATTERNS.some((re) => re.test(file))) continue;
     let content;
     try {
       content = fs.readFileSync(file, 'utf8');
@@ -79,7 +85,9 @@ function extractMarkers(files) {
     lines.forEach((line, idx) => {
       const m = line.match(MARKER_RE);
       if (!m) return;
-      markers.push({ file, line: idx + 1, reason: m[1].trim() });
+      // Trim capture at end of reason — don't include trailing code
+      const reason = m[1].split('\n')[0].trim();
+      markers.push({ file, line: idx + 1, reason });
     });
   }
   return markers;

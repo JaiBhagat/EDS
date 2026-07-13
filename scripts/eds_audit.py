@@ -119,7 +119,23 @@ def audit_plan_gates(root, result):
 
     plan_text = brief[plan_idx:]
     lines = plan_text.split("\n")
-    done_entries = [l for l in lines if re.match(r"^\s*[-*]\s+", l) and "done" in l.lower()]
+
+    # Distinguish: plan entries use bullet format "- stage · skill · status"
+    # A table-formatted plan (|---|) is a format mismatch → FAIL as unparseable
+    plan_entries = [l for l in lines if re.match(r"^\s*[-*]\s+\S+.*·", l)]
+    has_table = any(re.match(r"\s*\|", l) for l in lines[1:] if l.strip())
+
+    if not plan_entries and has_table:
+        result.check("plan-gates", "plan-parseable", False,
+                     "Plan uses table format but parser expects bullet format '- stage · skill · status' — malformed")
+        return
+
+    if not plan_entries:
+        result.check("plan-gates", "plan-parseable", False,
+                     "Plan section present but 0 entries parsed — malformed or empty")
+        return
+
+    done_entries = [l for l in plan_entries if "done" in l.lower()]
 
     if not done_entries:
         result.check("plan-gates", "done-stages-gated", True, "no done stages yet")

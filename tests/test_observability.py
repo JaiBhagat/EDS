@@ -127,6 +127,23 @@ class TestEdsAudit:
         output, code = self._run_audit(tmp_path)
         assert "stale" in output.lower() or "old" in output.lower() or "FAIL" in output
 
+    def test_fails_on_table_format_plan(self, tmp_path):
+        """P1.3: A table-formatted Plan is unparseable by the bullet parser → FAIL."""
+        eds = tmp_path / ".eds"
+        eds.mkdir()
+
+        (eds / "BRIEF.md").write_text(
+            "# Problem Brief\n\n## Status\nconfirmed\n\n## Plan\n"
+            "| stage | status | gate |\n"
+            "|---|---|---|\n"
+            "| data-audit | done | gate:data-audit-20240101 |\n"
+            "| eda | pending | |\n"
+        )
+
+        output, code = self._run_audit(tmp_path)
+        assert "FAIL" in output
+        assert "malformed" in output.lower() or "table format" in output.lower() or "unparseable" in output.lower()
+
     def test_detects_holdout_duplicate(self, tmp_path):
         eds = tmp_path / ".eds"
         eds.mkdir()

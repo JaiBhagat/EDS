@@ -82,6 +82,26 @@ class TestHarvestDebt:
         # Should appear only once
         assert ledger.count("already harvested") == 1
 
+    def test_excludes_test_directory(self, project_dir):
+        """P3.1: markers inside tests/ should NOT be harvested."""
+        test_dir = project_dir / "tests"
+        test_dir.mkdir()
+        src = test_dir / "test_example.py"
+        src.write_text("# eds: deferred — this is a test fixture marker\n")
+
+        ledger = run_harvest(str(project_dir))
+        assert "test fixture marker" not in ledger
+
+    def test_excludes_benchmark_fixtures(self, project_dir):
+        """P3.1: markers inside benchmarks/fixtures/ should NOT be harvested."""
+        fix_dir = project_dir / "benchmarks" / "fixtures"
+        fix_dir.mkdir(parents=True)
+        src = fix_dir / "example.py"
+        src.write_text("# eds: deferred — planted defect marker\n")
+
+        ledger = run_harvest(str(project_dir))
+        assert "planted defect" not in ledger
+
     def test_handles_em_dash_and_double_dash(self, project_dir):
         src1 = project_dir / "a.py"
         src1.write_text("# eds: deferred -- double dash reason\n")
